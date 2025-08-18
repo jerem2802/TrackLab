@@ -4,18 +4,18 @@ import { useAuth } from '../context/AuthContext'
 import LabLayout from '../components/LabLayout'
 
 export default function Lab() {
-  const { user, isAuthenticated } = useAuth()
+  const { isAuthenticated } = useAuth()
   const navigate = useNavigate()
 
-  // ✅ Protection : redirection si pas connecté
   useEffect(() => {
     if (!isAuthenticated) {
       navigate('/login')
     }
   }, [isAuthenticated, navigate])
 
+  // Si pas connecté, on redirige (pas besoin d'afficher quoi que ce soit)
   if (!isAuthenticated) return null
 
-  // ✅ Délégation à un vrai composant stylé
-  return user ? <LabLayout user={user} /> : null
+  // Si connecté, on affiche le LabLayout (qui utilise déjà useAuth() en interne)
+  return <LabLayout />
 }

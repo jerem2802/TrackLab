@@ -37,7 +37,7 @@ export default function Login() {
   // ✅ Redirection une fois authentifié ET user chargé
   useEffect(() => {
     if (isAuthenticated && user) {
-      navigate('/Lab')
+      navigate('/lab')
     }
   }, [isAuthenticated, user, navigate])
 

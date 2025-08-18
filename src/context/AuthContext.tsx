@@ -1,5 +1,5 @@
-import jwt_decode from 'jwt-decode'
-import { createContext, ReactNode, useContext, useEffect, useState } from 'react'
+import jwtDecode from 'jwt-decode'
+import { createContext, ReactNode, useContext, useEffect, useState, useCallback } from 'react'
 
 // Type du contexte
 interface AuthContextType {
@@ -18,20 +18,34 @@ interface DecodedToken {
   iat: number
 }
 
-
-
 // Création du contexte
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
-export const AuthProvider = ({ children }: { children: ReactNode }) => {
+// Provider component
+export function AuthProvider({ children }: { children: ReactNode }) {
   const [token, setToken] = useState<string | null>(null)
   const [user, setUser] = useState<{ id: string; email: string } | null>(null)
+
+  // Définir logout avec useCallback pour éviter les re-renders inutiles
+  const logout = useCallback(() => {
+    localStorage.removeItem('token')
+    setUser(null)
+    setToken(null)
+  }, [])
 
   useEffect(() => {
     const storedToken = localStorage.getItem('token')
     if (storedToken) {
       try {
-        const decoded: DecodedToken = jwt_decode<DecodedToken>(storedToken)
+        const decoded: DecodedToken = jwtDecode<DecodedToken>(storedToken)
+        
+        // Vérifier si le token n'est pas expiré
+        if (decoded.exp * 1000 < Date.now()) {
+          console.log('Token expiré')
+          logout()
+          return
+        }
+        
         console.log('DECODED TOKEN :', decoded)
         setUser({ id: decoded.userId, email: decoded.email })
         setToken(storedToken)
@@ -40,19 +54,24 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         logout()
       }
     }
-  }, [])
+  }, [logout])
 
   const login = (newToken: string) => {
-    localStorage.setItem('token', newToken)
-    const decoded: DecodedToken = jwt_decode<DecodedToken>(newToken)
-    setUser({ id: decoded.userId, email: decoded.email })
-    setToken(newToken)
-  }
-
-  const logout = () => {
-    localStorage.removeItem('token')
-    setUser(null)
-    setToken(null)
+    try {
+      const decoded: DecodedToken = jwtDecode<DecodedToken>(newToken)
+      
+      // Vérifier si le token n'est pas expiré
+      if (decoded.exp * 1000 < Date.now()) {
+        console.error('Token expiré lors du login')
+        return
+      }
+      
+      localStorage.setItem('token', newToken)
+      setUser({ id: decoded.userId, email: decoded.email })
+      setToken(newToken)
+    } catch (err) {
+      console.error('Erreur lors du décodage du token', err)
+    }
   }
 
   const value: AuthContextType = {
@@ -66,7 +85,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
 
-export const useAuth = (): AuthContextType => {
+// Hook personnalisé
+export function useAuth() {
   const context = useContext(AuthContext)
   if (!context) {
     throw new Error('useAuth doit être utilisé dans un AuthProvider')

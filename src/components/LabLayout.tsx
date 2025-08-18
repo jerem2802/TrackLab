@@ -5,6 +5,7 @@ import PostItNote from './PostItNote'
 import PostItManager from './PostItManager'
 import ImageItem from './ImageItems'
 import { StickyNote } from '../types/notes'
+import LayersPanel from './LayersPanel'
 
 type DroppedImage = {
   id: string
@@ -37,8 +38,8 @@ export default function LabLayout() {
   const [drawingMode, setDrawingMode] = useState(false)
   const [eraseMode, setEraseMode] = useState(false)
   const [currentScale, setCurrentScale] = useState(CANVAS_CONFIG.defaultZoom)
-  const [layersPanelOpen, setLayersPanelOpen] = useState(false) // État du panel layers
-  const [selectedLayers, setSelectedLayers] = useState<string[]>([]) // Sélection multiple
+  const [layersPanelOpen, setLayersPanelOpen] = useState(false)
+  const [placementMode, setPlacementMode] = useState(false) // ← Mode placement actif
 
   // Refs pour pan/zoom + canvas
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -81,6 +82,7 @@ export default function LabLayout() {
   // ===== Notes =====
   const handleCreateNote = (color: string) => {
     setSelectedColor(color)
+    setPlacementMode(true) // ← Activer le mode placement
   }
 
   const handleDrag = (id: string, dx: number, dy: number) => {
@@ -251,12 +253,17 @@ export default function LabLayout() {
         spacePressedRef.current = true
         document.body.style.cursor = 'grab'
       }
+      
+      // Annuler le placement avec Escape
+      if (e.code === 'Escape' && placementMode) {
+        setPlacementMode(false)
+      }
     }
     
     const handleKeyUp = (e: KeyboardEvent) => {
       if (e.code === 'Space') {
         spacePressedRef.current = false
-        document.body.style.cursor = 'default'
+        document.body.style.cursor = placementMode ? 'crosshair' : 'default'
       }
     }
 
@@ -267,7 +274,7 @@ export default function LabLayout() {
       window.removeEventListener('keyup', handleKeyUp)
       document.body.style.cursor = 'default'
     }
-  }, [])
+  }, [placementMode])
 
   // ===== Pan avec Space + Mouse =====
   useEffect(() => {
@@ -301,7 +308,7 @@ export default function LabLayout() {
     const handleMouseUp = () => {
       if (dragStateRef.current.isDragging) {
         dragStateRef.current.isDragging = false
-        document.body.style.cursor = spacePressedRef.current ? 'grab' : 'default'
+        document.body.style.cursor = spacePressedRef.current ? 'grab' : placementMode ? 'crosshair' : 'default'
       }
     }
 
@@ -314,7 +321,7 @@ export default function LabLayout() {
       window.removeEventListener('mousemove', handleMouseMove)
       window.removeEventListener('mouseup', handleMouseUp)
     }
-  }, [])
+  }, [placementMode])
 
   const isPanTarget = (target: EventTarget | null): boolean => {
     if (!(target instanceof HTMLElement)) return false
@@ -335,33 +342,6 @@ export default function LabLayout() {
     if (file) await addImageFromFile(file, e.clientX, e.clientY)
   }
 
-  // ===== Gestion de la sélection des layers =====
-  const handleLayerSelect = (layerId: string, isMultiSelect: boolean) => {
-    setSelectedLayers(prev => {
-      if (isMultiSelect) {
-        // Ctrl+clic : toggle la sélection
-        return prev.includes(layerId)
-          ? prev.filter(id => id !== layerId)
-          : [...prev, layerId]
-      } else {
-        // Clic simple : sélection unique
-        return [layerId]
-      }
-    })
-  }
-
-  const handleGroupSelected = () => {
-    if (selectedLayers.length < 2) return
-    
-    const groupId = `group-${Date.now()}`
-    const groupName = `Groupe ${selectedLayers.length} éléments`
-    
-    // TODO: Implémenter la logique de groupement
-    console.log('Grouper:', selectedLayers, 'en groupe:', groupName)
-    
-    // Reset la sélection
-    setSelectedLayers([groupId])
-  }
   const resetView = () => {
     scaleRef.current = CANVAS_CONFIG.defaultZoom
     translateRef.current = { 
@@ -374,133 +354,94 @@ export default function LabLayout() {
   }
 
   return (
-    <div className={`fixed inset-0 flex flex-col overflow-hidden bg-gradient-to-br from-[#e0f7ff] to-[#dbeafe] ${drawingMode ? 'cursor-crosshair' : ''}`}>
+    <div className={`fixed inset-0 flex flex-col overflow-hidden bg-gradient-to-br from-[#e0f7ff] to-[#dbeafe] ${
+      drawingMode ? 'cursor-crosshair' : placementMode ? 'cursor-crosshair' : ''
+    }`}>
       
-      {/* Bouton LayersPanel - Apparaît automatiquement s'il y a des éléments */}
-      {(notes.length > 0 || images.length > 0) && !layersPanelOpen && (
-        <button
-          onClick={() => setLayersPanelOpen(true)}
-          className="fixed z-50 p-2 transition-colors bg-white border border-gray-200 rounded-lg shadow-lg top-20 left-4 hover:bg-gray-50"
-          title="Ouvrir le panel des layers"
-        >
-          <span className="text-lg">📁</span>
-          <span className="absolute w-3 h-3 bg-blue-500 rounded-full -top-1 -right-1"></span>
-        </button>
-      )}
-
-      {/* Panel Layers temporaire - juste pour fermer */}
-      {layersPanelOpen && (
-        <div className="fixed top-0 left-0 z-30 h-full p-4 bg-white border-r border-gray-200 shadow-lg w-80">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold">Layers</h2>
-            <button
-              onClick={() => setLayersPanelOpen(false)}
-              className="p-1 rounded hover:bg-gray-100"
-              title="Fermer"
-            >
-              ✕
-            </button>
-          </div>
-          
-          {/* Toolbar de groupement */}
-          {selectedLayers.length >= 2 && (
-            <div className="p-2 mb-3 border border-blue-200 rounded-lg bg-blue-50">
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-blue-700">
-                  {selectedLayers.length} éléments sélectionnés
-                </span>
-                <button
-                  onClick={handleGroupSelected}
-                  className="px-3 py-1 text-sm text-white transition-colors bg-blue-500 rounded hover:bg-blue-600"
-                >
-                  📁 Grouper
-                </button>
-              </div>
-            </div>
-          )}
-          
-          {/* Liste des éléments */}
-          <div className="space-y-1">
-            {notes.map(note => (
-              <div 
-                key={note.id} 
-                className={`flex items-center gap-2 p-2 rounded cursor-pointer transition-colors ${
-                  selectedLayers.includes(note.id) 
-                    ? 'bg-blue-100 border border-blue-300' 
-                    : 'bg-gray-50 hover:bg-gray-100'
-                }`}
-                onClick={(e) => handleLayerSelect(note.id, e.ctrlKey || e.metaKey)}
-              >
-                <span>📝</span>
-                <span className="flex-1 text-sm truncate" title={note.text || 'Post-it sans texte'}>
-                  {note.text || 'Post-it sans texte'}
-                </span>
-              </div>
-            ))}
-            {images.map(img => (
-              <div 
-                key={img.id} 
-                className={`flex items-center gap-2 p-2 rounded cursor-pointer transition-colors ${
-                  selectedLayers.includes(img.id) 
-                    ? 'bg-blue-100 border border-blue-300' 
-                    : 'bg-gray-50 hover:bg-gray-100'
-                }`}
-                onClick={(e) => handleLayerSelect(img.id, e.ctrlKey || e.metaKey)}
-              >
-                <span>🖼️</span>
-                <span className="flex-1 text-sm truncate" title={img.note || 'Image sans nom'}>
-                  {img.note || 'Image sans nom'}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+      {/* LayersPanel sophistiqué */}
+      <LayersPanel
+        notes={notes}
+        images={images}
+        onLayerSelect={(layerId: string, multiSelect?: boolean) => {
+          console.log('Layer selected:', layerId, multiSelect)
+        }}
+        onLayerVisibilityToggle={(layerId: string, visible: boolean) => {
+          console.log('Toggle visibility:', layerId, visible)
+        }}
+        onLayerLockToggle={(layerId: string, locked: boolean) => {
+          console.log('Toggle lock:', layerId, locked)
+        }}
+        onLayerDelete={(layerId: string) => {
+          handleDelete(layerId)
+          deleteImage(layerId)
+        }}
+        onLayerRename={(layerId: string, newName: string) => {
+          console.log('Rename:', layerId, newName)
+        }}
+        isOpen={layersPanelOpen}
+        onToggle={() => setLayersPanelOpen(!layersPanelOpen)}
+      />
 
       {/* Header */}
-      <div className="h-[72px] flex-shrink-0 bg-white shadow-lg z-20 flex items-center justify-between px-6 py-4"
-           style={{ marginLeft: layersPanelOpen ? '320px' : '0px', transition: 'margin-left 0.3s ease' }}>
-        <h1 className="text-2xl font-bold text-gray-800">🧠 TrackLab – Lab Visuel</h1>
-        
-        <div className="flex items-center gap-4">
-          <span className="text-sm text-gray-600">
-            Connecté : {user?.email || 'Utilisateur'}
-          </span>
-          
-          <div className="flex items-center gap-2 px-3 py-1 text-sm bg-gray-100 rounded-lg">
-            <span>Zoom: {Math.round(currentScale * 100)}%</span>
-            <button 
-              onClick={resetView}
-              className="px-2 py-1 text-xs text-white bg-blue-500 rounded hover:bg-blue-600"
-            >
-              Reset
-            </button>
-          </div>
-          
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-gray-600">Post-it :</span>
-            <PostItPalette onCreateNote={handleCreateNote} />
-          </div>
-          
-          <button 
-            onClick={() => setDrawingMode(p => !p)} 
-            className={`px-3 py-2 text-sm rounded-lg transition-colors ${
-              drawingMode ? 'bg-green-500 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-            }`}
-          >
-            ✏️ Dessiner
-          </button>
-          
-          <button 
-            onClick={() => setEraseMode(p => !p)} 
-            className={`px-3 py-2 text-sm rounded-lg transition-colors ${
-              eraseMode ? 'bg-red-500 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-            }`}
-          >
-            🧽 Effacer
-          </button>
-        </div>
-      </div>
+<div className="h-[72px] flex-shrink-0 bg-white shadow-lg z-20 flex items-center justify-between px-6 py-4"
+     style={{ marginLeft: layersPanelOpen ? '320px' : '0px', transition: 'margin-left 0.3s ease' }}>
+
+  {/* Logo + titre */}
+  <div className="flex items-center gap-2">
+    <img src="/logoTrack.png" alt="TrackLab logo" className="w-16 h-16 drop-shadow-xl" />
+    <h1 className="text-3xl font-bold text-fuchsia-950">TrackLab </h1>
+  </div>
+
+  <div className="flex items-center gap-4">
+    <span className="text-sm text-gray-600">
+      Connecté : {user?.email || 'Utilisateur'}
+    </span>
+
+    <div className="flex items-center gap-2 px-3 py-1 text-sm bg-gray-100 rounded-lg">
+      <span>Zoom: {Math.round(currentScale * 100)}%</span>
+      <button 
+        onClick={resetView}
+        className="px-2 py-1 text-xs text-white bg-blue-500 rounded hover:bg-blue-600"
+      >
+        Reset
+      </button>
+    </div>
+
+    <div className="flex items-center gap-2">
+      <span className="text-sm text-gray-600">Post-it :</span>
+      <PostItPalette onCreateNote={handleCreateNote} />
+    </div>
+
+    {/* Bouton annuler placement */}
+    {placementMode && (
+      <button 
+        onClick={() => setPlacementMode(false)}
+        className="px-3 py-2 text-sm text-red-600 transition-colors bg-red-100 rounded-lg hover:bg-red-200"
+      >
+        ✕ Annuler
+      </button>
+    )}
+
+    <button 
+      onClick={() => setDrawingMode(p => !p)} 
+      className={`px-3 py-2 text-sm rounded-lg transition-colors ${
+        drawingMode ? 'bg-green-500 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+      }`}
+    >
+      ✏️ Dessiner
+    </button>
+
+    <button 
+      onClick={() => setEraseMode(p => !p)} 
+      className={`px-3 py-2 text-sm rounded-lg transition-colors ${
+        eraseMode ? 'bg-red-500 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+      }`}
+    >
+      🧽 Effacer
+    </button>
+  </div>
+</div>
+
 
       {/* Workspace */}
       <div className="relative flex-1 overflow-hidden" 
@@ -542,13 +483,16 @@ export default function LabLayout() {
             }}
           />
 
-          {/* PostItManager pour gérer la création au clic */}
-          <PostItManager 
-            selectedColor={selectedColor}
-            scale={currentScale}
-            contentRef={contentRef}
-            setNotes={setNotes}
-          />
+          {/* PostItManager - Seulement en mode placement */}
+          {placementMode && (
+            <PostItManager 
+              selectedColor={selectedColor}
+              scale={currentScale}
+              contentRef={contentRef}
+              setNotes={setNotes}
+              onPlaced={() => setPlacementMode(false)} // ← Désactiver après placement
+            />
+          )}
 
           {/* Images */}
           {images
@@ -586,6 +530,12 @@ export default function LabLayout() {
         <div>• <kbd className="px-1 bg-gray-600 rounded">Espace + Glisser</kbd> : Déplacer la vue</div>
         <div>• <kbd className="px-1 bg-gray-600 rounded">Molette</kbd> : Zoomer/Dézoomer</div>
         <div>• Glisser une image pour l'ajouter</div>
+        {placementMode && (
+          <div className="mt-2 text-yellow-300">
+            <div>• <kbd className="px-1 bg-gray-600 rounded">Clic</kbd> : Placer le post-it</div>
+            <div>• <kbd className="px-1 bg-gray-600 rounded">Escape</kbd> : Annuler</div>
+          </div>
+        )}
       </div>
     </div>
   )

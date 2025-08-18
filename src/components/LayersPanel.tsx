@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import LayerItem from './LayerItem'
-import { Search, Plus, Folder, Lock, Eye, EyeOff, MoreHorizontal } from 'lucide-react'
+import { Search, Folder, MoreHorizontal } from 'lucide-react'
 import LayerGroup from './LayerGroup'
 import LayerToolbar from './LayerToolbar'
 import { LayerElement, LayersState, LayerOperations, getLayerDisplayName } from '../types/layers'
@@ -38,19 +38,19 @@ export default function LayersPanel({
   })
   const [searchTerm, setSearchTerm] = useState('')
 
-  // Synchroniser les layers avec les éléments du canvas
+  // 🔹 Synchroniser les layers avec les éléments du canvas
   useEffect(() => {
     const newLayers: Record<string, LayerElement> = {}
 
-    // Ajouter les notes
+    // Notes
     notes.forEach(note => {
       newLayers[note.id] = {
         id: note.id,
-        name: '',
+        name: note.text || 'Note vide',
         type: 'note',
         visible: true,
         locked: false,
-        selected: false,
+        selected: layersState.selectedLayers.includes(note.id),
         createdAt: Date.now(),
         updatedAt: Date.now(),
         data: {
@@ -60,15 +60,15 @@ export default function LayersPanel({
       }
     })
 
-    // Ajouter les images
+    // Images
     images.forEach(image => {
       newLayers[image.id] = {
         id: image.id,
-        name: image.note || '',
+        name: image.note || 'Image',
         type: 'image',
         visible: true,
         locked: false,
-        selected: false,
+        selected: layersState.selectedLayers.includes(image.id),
         createdAt: Date.now(),
         updatedAt: Date.now(),
         data: {
@@ -79,23 +79,24 @@ export default function LayersPanel({
       }
     })
 
+    // ⚡ Remplacer complètement → supprime aussi les orphelins
     setLayersState(prev => ({
       ...prev,
-      layers: { ...prev.layers, ...newLayers }
+      layers: newLayers,
+      selectedLayers: prev.selectedLayers.filter(id => newLayers[id])
     }))
   }, [notes, images])
 
-  // Filtrer les layers selon la recherche
+  // Recherche
   const filteredLayers = useMemo(() => {
     if (!searchTerm) return Object.values(layersState.layers)
-
     return Object.values(layersState.layers).filter(layer => {
       const displayName = getLayerDisplayName(layer).toLowerCase()
       return displayName.includes(searchTerm.toLowerCase())
     })
   }, [layersState.layers, searchTerm])
 
-  // Séparer les layers en groupes et éléments individuels
+  // Groupes & éléments
   const { groupedLayers, individualLayers } = useMemo(() => {
     const groups: LayerElement[] = []
     const individuals: LayerElement[] = []
@@ -103,7 +104,7 @@ export default function LayersPanel({
     filteredLayers.forEach(layer => {
       if (layer.type === 'group') {
         groups.push(layer)
-      } else if (!layer.groupId) {
+      } else if (!layer.groupId || layersState.expandedGroups.has(layer.groupId)) {
         individuals.push(layer)
       }
     })
@@ -112,9 +113,9 @@ export default function LayersPanel({
       groupedLayers: groups.sort((a, b) => b.updatedAt - a.updatedAt),
       individualLayers: individuals.sort((a, b) => b.updatedAt - a.updatedAt)
     }
-  }, [filteredLayers])
+  }, [filteredLayers, layersState.expandedGroups])
 
-  // Operations sur les layers
+  // 🔹 Operations
   const layerOperations: LayerOperations = {
     createLayer: (element) => {
       const id = `${Date.now()}-${Math.random().toString(16).slice(2)}`
@@ -148,14 +149,13 @@ export default function LayersPanel({
       const layer = layersState.layers[id]
       if (!layer) return
 
-      // Supprimer du canvas
+      // 🔹 Supprimer aussi côté canvas
       onLayerDelete(id)
 
-      // Supprimer du state local
+      // 🔹 Supprimer du panel
       setLayersState(prev => {
         const newLayers = { ...prev.layers }
         delete newLayers[id]
-        
         return {
           ...prev,
           layers: newLayers,
@@ -167,7 +167,6 @@ export default function LayersPanel({
     toggleVisibility: (id) => {
       const layer = layersState.layers[id]
       if (!layer) return
-
       const newVisible = !layer.visible
       layerOperations.updateLayer(id, { visible: newVisible })
       onLayerVisibilityToggle(id, newVisible)
@@ -176,7 +175,6 @@ export default function LayersPanel({
     toggleLock: (id) => {
       const layer = layersState.layers[id]
       if (!layer) return
-
       const newLocked = !layer.locked
       layerOperations.updateLayer(id, { locked: newLocked })
       onLayerLockToggle(id, newLocked)
@@ -190,7 +188,7 @@ export default function LayersPanel({
     selectLayer: (id, multiSelect = false) => {
       setLayersState(prev => {
         let newSelected: string[]
-        
+
         if (multiSelect) {
           newSelected = prev.selectedLayers.includes(id)
             ? prev.selectedLayers.filter(layerId => layerId !== id)
@@ -199,7 +197,6 @@ export default function LayersPanel({
           newSelected = [id]
         }
 
-        // Mettre à jour la sélection visuelle
         const newLayers = { ...prev.layers }
         Object.keys(newLayers).forEach(layerId => {
           newLayers[layerId] = {
@@ -220,7 +217,6 @@ export default function LayersPanel({
 
     groupLayers: (layerIds, groupName = 'Nouveau groupe') => {
       if (layerIds.length < 2) return
-
       const groupId = `group-${Date.now()}`
       const newGroup: LayerElement = {
         id: groupId,
@@ -237,11 +233,7 @@ export default function LayersPanel({
 
       setLayersState(prev => {
         const newLayers = { ...prev.layers }
-        
-        // Ajouter le groupe
         newLayers[groupId] = newGroup
-        
-        // Assigner les layers au groupe
         layerIds.forEach(layerId => {
           if (newLayers[layerId]) {
             newLayers[layerId] = {
@@ -251,7 +243,6 @@ export default function LayersPanel({
             }
           }
         })
-
         return {
           ...prev,
           layers: newLayers,
@@ -264,11 +255,8 @@ export default function LayersPanel({
     ungroupLayer: (groupId) => {
       const group = layersState.layers[groupId]
       if (!group || group.type !== 'group') return
-
       setLayersState(prev => {
         const newLayers = { ...prev.layers }
-        
-        // Retirer groupId des enfants
         group.children?.forEach(childId => {
           if (newLayers[childId]) {
             newLayers[childId] = {
@@ -278,10 +266,7 @@ export default function LayersPanel({
             }
           }
         })
-
-        // Supprimer le groupe
         delete newLayers[groupId]
-
         return {
           ...prev,
           layers: newLayers,
@@ -292,10 +277,7 @@ export default function LayersPanel({
     },
 
     moveToGroup: (layerId, groupId) => {
-      layerOperations.updateLayer(layerId, { 
-        groupId: groupId || undefined,
-        updatedAt: Date.now()
-      })
+      layerOperations.updateLayer(layerId, { groupId: groupId || undefined })
     }
   }
 
@@ -328,7 +310,6 @@ export default function LayersPanel({
       </div>
 
       {!hasElements ? (
-        /* État vide */
         <div className="flex items-center justify-center flex-1 p-6">
           <div className="text-center text-gray-500">
             <Folder size={48} className="mx-auto mb-3 text-gray-300" />
@@ -338,7 +319,7 @@ export default function LayersPanel({
         </div>
       ) : (
         <>
-          {/* Barre de recherche */}
+          {/* Search */}
           <div className="p-3 border-b border-gray-100">
             <div className="relative">
               <Search size={16} className="absolute text-gray-400 transform -translate-y-1/2 left-3 top-1/2" />
@@ -359,10 +340,9 @@ export default function LayersPanel({
             operations={layerOperations}
           />
 
-          {/* Liste des layers */}
+          {/* Liste */}
           <div className="flex-1 overflow-y-auto">
             <div className="p-2 space-y-1">
-              {/* Groupes */}
               {groupedLayers.map(group => (
                 <LayerGroup
                   key={group.id}
@@ -373,11 +353,8 @@ export default function LayersPanel({
                   onToggleExpand={(groupId) => {
                     setLayersState(prev => {
                       const newExpanded = new Set(prev.expandedGroups)
-                      if (newExpanded.has(groupId)) {
-                        newExpanded.delete(groupId)
-                      } else {
-                        newExpanded.add(groupId)
-                      }
+                      if (newExpanded.has(groupId)) newExpanded.delete(groupId)
+                      else newExpanded.add(groupId)
                       return { ...prev, expandedGroups: newExpanded }
                     })
                   }}
@@ -385,7 +362,6 @@ export default function LayersPanel({
                 />
               ))}
 
-              {/* Layers individuels */}
               {individualLayers.map(layer => (
                 <LayerItem
                   key={layer.id}

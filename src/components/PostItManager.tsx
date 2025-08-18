@@ -6,9 +6,10 @@ interface Props {
   scale: number
   contentRef: React.RefObject<HTMLDivElement | null>
   setNotes: React.Dispatch<React.SetStateAction<StickyNote[]>>
+  onPlaced?: () => void // ← Nouveau callback pour signaler le placement
 }
 
-export default function PostItManager({ selectedColor, scale, contentRef, setNotes }: Props) {
+export default function PostItManager({ selectedColor, scale, contentRef, setNotes, onPlaced }: Props) {
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
       // Vérifier que c'est un clic gauche
@@ -43,11 +44,12 @@ export default function PostItManager({ selectedColor, scale, contentRef, setNot
         x: Math.max(0, Math.min(x - 80, 8000 - 160)), // Centrer et contraindre
         y: Math.max(0, Math.min(y - 80, 6000 - 160)),
         color: selectedColor,
-        visible: true,  // ← AJOUTER CETTE LIGNE
-        locked: false   // ← AJOUTER CETTE LIGNE
+        visible: true,
+        locked: false
       }
 
       setNotes(prev => [...prev, newNote])
+      onPlaced?.() // ← Signaler que le post-it a été placé
     }
 
     const contentEl = contentRef.current
@@ -60,7 +62,7 @@ export default function PostItManager({ selectedColor, scale, contentRef, setNot
         contentEl.removeEventListener('click', handleClick)
       }
     }
-  }, [selectedColor, scale, contentRef, setNotes])
+  }, [selectedColor, scale, contentRef, setNotes, onPlaced])
 
   return null
 }

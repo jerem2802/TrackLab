@@ -6,6 +6,7 @@ import PostItManager from './PostItManager'
 import ImageItem from './ImageItems'
 import { StickyNote } from '../types/notes'
 import LayersPanel from './LayersPanel'
+import TableManager from './TableManager' // ← on utilise le manager, plus TablePanel ici
 
 type DroppedImage = {
   id: string
@@ -19,13 +20,13 @@ type DroppedImage = {
   note?: string
 }
 
-// Configuration du canvas - TAILLE FIXE pour éviter les containers gigantesques
+
 const CANVAS_CONFIG = {
-  width: 8000,    // 8000px de large
-  height: 6000,   // 6000px de haut
-  minZoom: 0.1,   // Zoom minimum
-  maxZoom: 3.0,   // Zoom maximum
-  defaultZoom: 0.5 // Zoom par défaut pour voir plus d'espace
+  width: 8000,
+  height: 6000,
+  minZoom: 0.1,
+  maxZoom: 3.0,
+  defaultZoom: 1
 }
 
 export default function LabLayout() {
@@ -39,20 +40,20 @@ export default function LabLayout() {
   const [eraseMode, setEraseMode] = useState(false)
   const [currentScale, setCurrentScale] = useState(CANVAS_CONFIG.defaultZoom)
   const [layersPanelOpen, setLayersPanelOpen] = useState(false)
-  const [placementMode, setPlacementMode] = useState(false) // ← Mode placement actif
+  const [placementMode, setPlacementMode] = useState(false)
 
-  // Refs pour pan/zoom + canvas
+  // Pan/zoom refs
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const contentRef = useRef<HTMLDivElement>(null)
   const scaleRef = useRef(CANVAS_CONFIG.defaultZoom)
-  const translateRef = useRef({ 
-    x: (window.innerWidth - CANVAS_CONFIG.width * CANVAS_CONFIG.defaultZoom) / 2, 
-    y: (window.innerHeight - CANVAS_CONFIG.height * CANVAS_CONFIG.defaultZoom) / 2 
+  const translateRef = useRef({
+    x: (window.innerWidth - CANVAS_CONFIG.width * CANVAS_CONFIG.defaultZoom) / 2,
+    y: (window.innerHeight - CANVAS_CONFIG.height * CANVAS_CONFIG.defaultZoom) / 2
   })
   const rafRef = useRef(0)
   const spacePressedRef = useRef(false)
 
-  // État pour les drags
+  // drag state (pan)
   const dragStateRef = useRef<{
     isDragging: boolean
     startX: number
@@ -65,16 +66,16 @@ export default function LabLayout() {
     initialTranslate: { x: 0, y: 0 }
   })
 
+  // callback fourni par TableManager pour créer un tableau depuis le header
+  const addTableFnRef = useRef<null | (() => void)>(null)
+
   const updateTransform = () => {
     if (!contentRef.current) return
     contentRef.current.style.transform =
       `translate(${translateRef.current.x}px, ${translateRef.current.y}px) scale(${scaleRef.current})`
-    
-    // Synchroniser le state avec la ref
     setCurrentScale(scaleRef.current)
   }
 
-  // Initialisation du transform
   useEffect(() => {
     updateTransform()
   }, [])
@@ -82,7 +83,7 @@ export default function LabLayout() {
   // ===== Notes =====
   const handleCreateNote = (color: string) => {
     setSelectedColor(color)
-    setPlacementMode(true) // ← Activer le mode placement
+    setPlacementMode(true)
   }
 
   const handleDrag = (id: string, dx: number, dy: number) => {
@@ -120,35 +121,24 @@ export default function LabLayout() {
     const src = await fileToDataURL(file)
     const { x, y } = screenToWorld(clientX, clientY)
     const W = 220, H = 160
-    
     const constrainedX = Math.min(Math.max(x - W / 2, 0), CANVAS_CONFIG.width - W)
     const constrainedY = Math.min(Math.max(y - H / 2, 0), CANVAS_CONFIG.height - H)
-    
     setImages(prev => [...prev, {
       id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
-      x: constrainedX, 
-      y: constrainedY, 
-      width: W, 
-      height: H, 
-      src,
-      createdAt: Date.now(), 
-      z: Date.now(),
+      x: constrainedX, y: constrainedY, width: W, height: H,
+      src, createdAt: Date.now(), z: Date.now(),
     }])
   }
 
   const updateImage = (id: string, patch: Partial<DroppedImage>) => {
     setImages(prev => prev.map(img => {
-      if (img.id === id) {
-        const updated = { ...img, ...patch }
-        if (patch.x !== undefined || patch.width !== undefined) {
-          updated.x = Math.min(Math.max(updated.x, 0), CANVAS_CONFIG.width - updated.width)
-        }
-        if (patch.y !== undefined || patch.height !== undefined) {
-          updated.y = Math.min(Math.max(updated.y, 0), CANVAS_CONFIG.height - updated.height)
-        }
-        return updated
-      }
-      return img
+      if (img.id !== id) return img
+      const updated = { ...img, ...patch }
+      if (patch.x !== undefined || patch.width !== undefined)
+        updated.x = Math.min(Math.max(updated.x, 0), CANVAS_CONFIG.width - updated.width)
+      if (patch.y !== undefined || patch.height !== undefined)
+        updated.y = Math.min(Math.max(updated.y, 0), CANVAS_CONFIG.height - updated.height)
+      return updated
     }))
   }
 
@@ -218,7 +208,7 @@ export default function LabLayout() {
     }
   }, [drawingMode, eraseMode])
 
-  // ===== Zoom avec molette =====
+  // ===== Zoom molette =====
   useEffect(() => {
     const handleWheel = (e: WheelEvent) => {
       if (e.ctrlKey) return
@@ -245,7 +235,7 @@ export default function LabLayout() {
     return () => window.removeEventListener('wheel', handleWheel)
   }, [])
 
-  // ===== Gestion des touches =====
+  // ===== Clavier =====
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.code === 'Space' && !spacePressedRef.current) {
@@ -253,11 +243,7 @@ export default function LabLayout() {
         spacePressedRef.current = true
         document.body.style.cursor = 'grab'
       }
-      
-      // Annuler le placement avec Escape
-      if (e.code === 'Escape' && placementMode) {
-        setPlacementMode(false)
-      }
+      if (e.code === 'Escape' && placementMode) setPlacementMode(false)
     }
     
     const handleKeyUp = (e: KeyboardEvent) => {
@@ -276,7 +262,7 @@ export default function LabLayout() {
     }
   }, [placementMode])
 
-  // ===== Pan avec Space + Mouse =====
+  // ===== Pan (Espace + drag) =====
   useEffect(() => {
     const handleMouseDown = (e: MouseEvent) => {
       if (!spacePressedRef.current || e.button !== 0) return
@@ -294,7 +280,6 @@ export default function LabLayout() {
 
     const handleMouseMove = (e: MouseEvent) => {
       if (!dragStateRef.current.isDragging) return
-      
       const dx = e.clientX - dragStateRef.current.startX
       const dy = e.clientY - dragStateRef.current.startY
       
@@ -306,10 +291,9 @@ export default function LabLayout() {
     }
 
     const handleMouseUp = () => {
-      if (dragStateRef.current.isDragging) {
-        dragStateRef.current.isDragging = false
-        document.body.style.cursor = spacePressedRef.current ? 'grab' : placementMode ? 'crosshair' : 'default'
-      }
+      if (!dragStateRef.current.isDragging) return
+      dragStateRef.current.isDragging = false
+      document.body.style.cursor = spacePressedRef.current ? 'grab' : placementMode ? 'crosshair' : 'default'
     }
 
     window.addEventListener('mousedown', handleMouseDown)
@@ -325,13 +309,14 @@ export default function LabLayout() {
 
   const isPanTarget = (target: EventTarget | null): boolean => {
     if (!(target instanceof HTMLElement)) return false
-    return !target.closest('.note') && 
-           !target.closest('button') && 
-           !target.closest('.image-item') &&
-           !target.closest('.note-modal')
+    return !target.closest('.note')
+        && !target.closest('button')
+        && !target.closest('.image-item')
+        && !target.closest('.note-modal')
+        && !target.closest('.table-item') // ← pas de pan quand on est sur un tableau
   }
 
-  // ===== Drop d'images =====
+  // ===== DnD images =====
   const onDragOver = (e: React.DragEvent) => {
     if ([...e.dataTransfer.items].some(i => i.kind === 'file')) e.preventDefault()
   }
@@ -358,98 +343,85 @@ export default function LabLayout() {
       drawingMode ? 'cursor-crosshair' : placementMode ? 'cursor-crosshair' : ''
     }`}>
       
-      {/* LayersPanel sophistiqué */}
+      {/* LayersPanel */}
       <LayersPanel
         notes={notes}
         images={images}
-        onLayerSelect={(layerId: string, multiSelect?: boolean) => {
-          console.log('Layer selected:', layerId, multiSelect)
-        }}
-        onLayerVisibilityToggle={(layerId: string, visible: boolean) => {
-          console.log('Toggle visibility:', layerId, visible)
-        }}
-        onLayerLockToggle={(layerId: string, locked: boolean) => {
-          console.log('Toggle lock:', layerId, locked)
-        }}
-        onLayerDelete={(layerId: string) => {
-          handleDelete(layerId)
-          deleteImage(layerId)
-        }}
-        onLayerRename={(layerId: string, newName: string) => {
-          console.log('Rename:', layerId, newName)
-        }}
+        onLayerSelect={(layerId: string, multiSelect?: boolean) => { console.log('Layer selected:', layerId, multiSelect) }}
+        onLayerVisibilityToggle={(layerId: string, visible: boolean) => { console.log('Toggle visibility:', layerId, visible) }}
+        onLayerLockToggle={(layerId: string, locked: boolean) => { console.log('Toggle lock:', layerId, locked) }}
+        onLayerDelete={(layerId: string) => { handleDelete(layerId); deleteImage(layerId) }}
+        onLayerRename={(layerId: string, newName: string) => { console.log('Rename:', layerId, newName) }}
         isOpen={layersPanelOpen}
         onToggle={() => setLayersPanelOpen(!layersPanelOpen)}
       />
 
       {/* Header */}
-<div className="h-[72px] flex-shrink-0 bg-white shadow-lg z-20 flex items-center justify-between px-6 py-4"
-     style={{ marginLeft: layersPanelOpen ? '320px' : '0px', transition: 'margin-left 0.3s ease' }}>
+      <div className="h-[72px] flex-shrink-0 bg-white shadow-lg z-20 flex items-center justify-between px-6 py-4"
+           style={{ marginLeft: layersPanelOpen ? '320px' : '0px', transition: 'margin-left 0.3s ease' }}>
+        <div className="flex items-center gap-2">
+          <img src="/logoTrack.png" alt="TrackLab logo" className="w-16 h-16 drop-shadow-xl" />
+          <h1 className="text-3xl font-bold text-fuchsia-950">TrackLab </h1>
+        </div>
 
-  {/* Logo + titre */}
-  <div className="flex items-center gap-2">
-    <img src="/logoTrack.png" alt="TrackLab logo" className="w-16 h-16 drop-shadow-xl" />
-    <h1 className="text-3xl font-bold text-fuchsia-950">TrackLab </h1>
-  </div>
+        <div className="flex items-center gap-4">
+          <span className="text-sm text-gray-600">Connecté : {user?.email || 'Utilisateur'}</span>
 
-  <div className="flex items-center gap-4">
-    <span className="text-sm text-gray-600">
-      Connecté : {user?.email || 'Utilisateur'}
-    </span>
+          <div className="flex items-center gap-2 px-3 py-1 text-sm bg-gray-100 rounded-lg">
+            <span>Zoom: {Math.round(currentScale * 100)}%</span>
+            <button onClick={resetView} className="px-2 py-1 text-xs text-white bg-blue-500 rounded hover:bg-blue-600">Reset</button>
+          </div>
 
-    <div className="flex items-center gap-2 px-3 py-1 text-sm bg-gray-100 rounded-lg">
-      <span>Zoom: {Math.round(currentScale * 100)}%</span>
-      <button 
-        onClick={resetView}
-        className="px-2 py-1 text-xs text-white bg-blue-500 rounded hover:bg-blue-600"
-      >
-        Reset
-      </button>
-    </div>
+          {/* Ajout d’un tableau dans le canvas */}
+          <button
+            onClick={() => addTableFnRef.current?.()}
+            className="px-3 py-2 text-sm text-gray-700 bg-gray-200 rounded-lg hover:bg-gray-300"
+            title="Ajouter un tableau"
+          >
+            📊 Tableau
+          </button>
 
-    <div className="flex items-center gap-2">
-      <span className="text-sm text-gray-600">Post-it :</span>
-      <PostItPalette onCreateNote={handleCreateNote} />
-    </div>
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-gray-600">Post-it :</span>
+            <PostItPalette onCreateNote={handleCreateNote} />
+          </div>
 
-    {/* Bouton annuler placement */}
-    {placementMode && (
-      <button 
-        onClick={() => setPlacementMode(false)}
-        className="px-3 py-2 text-sm text-red-600 transition-colors bg-red-100 rounded-lg hover:bg-red-200"
-      >
-        ✕ Annuler
-      </button>
-    )}
+          {placementMode && (
+            <button 
+              onClick={() => setPlacementMode(false)}
+              className="px-3 py-2 text-sm text-red-600 transition-colors bg-red-100 rounded-lg hover:bg-red-200"
+            >
+              ✕
+            </button>
+          )}
 
-    <button 
-      onClick={() => setDrawingMode(p => !p)} 
-      className={`px-3 py-2 text-sm rounded-lg transition-colors ${
-        drawingMode ? 'bg-green-500 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-      }`}
-    >
-      ✏️ Dessiner
-    </button>
+          <button 
+            onClick={() => setDrawingMode(p => !p)} 
+            className={`px-3 py-2 text-sm rounded-lg transition-colors ${
+              drawingMode ? 'bg-green-500 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+            }`}
+          >
+            ✏️ Dessiner
+          </button>
 
-    <button 
-      onClick={() => setEraseMode(p => !p)} 
-      className={`px-3 py-2 text-sm rounded-lg transition-colors ${
-        eraseMode ? 'bg-red-500 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-      }`}
-    >
-      🧽 Effacer
-    </button>
-  </div>
-</div>
-
+          <button 
+            onClick={() => setEraseMode(p => !p)} 
+            className={`px-3 py-2 text-sm rounded-lg transition-colors ${
+              eraseMode ? 'bg-red-500 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+            }`}
+          >
+            🧽 Effacer
+          </button>
+        </div>
+      </div>
 
       {/* Workspace */}
       <div className="relative flex-1 overflow-hidden" 
            style={{ marginLeft: layersPanelOpen ? '320px' : '0px', transition: 'margin-left 0.3s ease' }}
            onDragOver={onDragOver} 
            onDrop={onDrop}>
-        
-        {/* Canvas pour dessiner */}
+
+        {/* Drawing layer */}
         <canvas 
           ref={canvasRef} 
           className="absolute top-0 left-0 z-10 pointer-events-auto" 
@@ -459,7 +431,7 @@ export default function LabLayout() {
           }}
         />
 
-        {/* Container principal avec taille FIXE */}
+        {/* World container */}
         <div
           ref={contentRef}
           className="absolute top-0 left-0 border border-gray-300 border-dashed bg-white/5"
@@ -470,8 +442,7 @@ export default function LabLayout() {
             transform: `translate(${translateRef.current.x}px, ${translateRef.current.y}px) scale(${scaleRef.current})`
           }}
         >
-          
-          {/* Grille de fond */}
+          {/* Grid */}
           <div 
             className="absolute inset-0 opacity-20"
             style={{
@@ -483,14 +454,14 @@ export default function LabLayout() {
             }}
           />
 
-          {/* PostItManager - Seulement en mode placement */}
+          {/* Placement Post-it */}
           {placementMode && (
             <PostItManager 
               selectedColor={selectedColor}
               scale={currentScale}
               contentRef={contentRef}
               setNotes={setNotes}
-              onPlaced={() => setPlacementMode(false)} // ← Désactiver après placement
+              onPlaced={() => setPlacementMode(false)}
             />
           )}
 
@@ -520,11 +491,19 @@ export default function LabLayout() {
               onDelete={handleDelete}
             />
           ))}
-          
+
+          {/* Tables dans le canvas */}
+          <TableManager
+            worldWidth={CANVAS_CONFIG.width}
+            worldHeight={CANVAS_CONFIG.height}
+            translate={translateRef.current}
+            scale={scaleRef.current}
+            setAddTableFn={(fn) => { addTableFnRef.current = fn }}
+          />
         </div>
       </div>
-      
-      {/* Instructions */}
+
+      {/* Aide */}
       <div className="absolute z-20 p-3 text-sm text-white rounded-lg bottom-4 left-4 bg-black/70">
         <div className="mb-1 font-medium">Navigation :</div>
         <div>• <kbd className="px-1 bg-gray-600 rounded">Espace + Glisser</kbd> : Déplacer la vue</div>

@@ -2,6 +2,16 @@ import { useState, useRef } from 'react'
 import { Eye, EyeOff, Lock, Unlock, Edit2, Trash2, MoreVertical } from 'lucide-react'
 import { LayerElement, LayerOperations, getLayerDisplayName, getLayerIcon } from '../types/layers'
 
+// Couleur -> icône fiole (dans /public/tubes/)
+const TUBE_ICONS: Record<string, string> = {
+  '#ffeb3b': '/tubes/Tube_jaune.png',
+  '#f8bbd9': '/tubes/Tube_rose.png',
+  '#a5d6a7': '/tubes/Tube_vert.png',
+  '#90caf9': '/tubes/Tube_bleu.png',
+  '#ffcc80': '/tubes/Tube_orange.png',
+  '#ce93d8': '/tubes/Tube_violet.png',
+};
+
 interface Props {
   layer: LayerElement
   isSelected: boolean
@@ -185,12 +195,14 @@ export default function LayerItem({ layer, isSelected, operations, indentLevel =
 
       {/* Indicateur de données spécifiques */}
       <div className="flex items-center gap-1">
-        {/* Pour les notes : afficher un point de couleur */}
+        {/* Pour les notes : afficher une fiole colorée */}
         {layer.type === 'note' && layer.data?.color && (
-          <div
-            className="w-3 h-3 border border-gray-300 rounded-full"
-            style={{ backgroundColor: layer.data.color }}
-            title={`Couleur: ${layer.data.color}`}
+          <img
+            src={TUBE_ICONS[layer.data?.color || '#90caf9']}
+            alt=""
+            className="w-[22px] h-[32px] object-contain select-none pointer-events-none shadow-2xl"
+            title={`Couleur: ${layer.data?.color || ''}`}
+            draggable={false}
           />
         )}
 
@@ -211,22 +223,3 @@ export default function LayerItem({ layer, isSelected, operations, indentLevel =
     </div>
   )
 }
-
-
-// 🎯 Fonctionnalités du LayerItem :
-
-// Double-clic pour renommer avec validation
-// Boutons show/hide et lock/unlock au hover
-// Menu contextuel avec actions supplémentaires
-// Indicateurs visuels (couleur des notes, dimensions des images)
-// Sélection multiple avec Ctrl/Cmd
-// Indentation pour les éléments dans des groupes
-// États visuels (sélectionné, masqué, verrouillé)
-
-// ✅ Détails UX :
-
-// Icônes contextuelles selon le type
-// Nom tronqué avec tooltip complet
-// Indicateurs de contenu (texte, couleur, etc.)
-// Feedback visuel immédiat
-// Raccourcis clavier (Enter/Escape)

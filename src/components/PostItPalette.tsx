@@ -18,7 +18,7 @@ export default function PostItPalette({ onCreateNote }: Props) {
         <button
           key={color}
           onClick={() => onCreateNote(color)}
-          className="w-6 h-6 rounded-full border-2 border-white shadow-md hover:scale-110 transition-transform"
+          className="w-6 h-6 transition-transform border-2 border-white rounded-full shadow-md hover:scale-110"
           style={{ backgroundColor: color }}
           title="Sélectionner cette couleur"
         />

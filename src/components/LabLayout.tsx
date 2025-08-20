@@ -506,7 +506,7 @@ export default function LabLayout() {
         {/* Monde zoomable */}
         <div
           ref={contentRef}
-          className="absolute top-0 left-0 border border-gray-300 border-dashed bg-gradient-to-br from-[#e0f7ff] to-[#dbeafe] z-0"
+          className="absolute top-0 left-0 border border-gray-300 border-dashed bg-gradient-to-br from-[#150E29] to-[#100A1F] z-0"
           style={{
             width: CANVAS_CONFIG.width,
             height: CANVAS_CONFIG.height,

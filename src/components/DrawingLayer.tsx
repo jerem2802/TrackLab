@@ -88,8 +88,8 @@ const DrawingLayer = forwardRef<DrawingLayerRef, Props>(({
       >
         <ReactSketchCanvas
           ref={canvasRef}
-          width={canvasWidth}
-          height={canvasHeight}
+          width={`${canvasWidth}px`}
+          height={`${canvasHeight}px`}
           strokeColor={color}
           strokeWidth={width * transform.scale}
           eraserWidth={width * transform.scale * 3}

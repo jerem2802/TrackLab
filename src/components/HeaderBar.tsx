@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import {  useRef, useEffect } from 'react'
 import PostItPalette from './PostItPalette'
 
 export type Tool = 'pencil' | 'eraser'
@@ -106,10 +106,40 @@ export default function HeaderBar({
       style={{ marginLeft: layersPanelOpen ? '320px' : '0px', transition: 'margin-left 0.3s ease' }}
     >
       {/* Branding */}
-      <div className="flex items-center gap-2">
-        <img src="/logo2.png" alt="TrackLab logo" className="w-20 h-17 drop-shadow-xl" />
-        <h1 className="text-3xl font-bold text-fuchsia-950">TrackLab</h1>
-      </div>
+  <div className="flex items-center gap-2">
+  <img src="/logo2.png" alt="TrackLab logo" className="w-20 h-17 drop-shadow-xl" />
+<div className="relative">
+  <svg className="absolute -z-10 opacity-70" width="0" height="0">
+    <defs>
+      <filter id="goo">
+        <feGaussianBlur in="SourceGraphic" stdDeviation="6" result="blur"/>
+        <feColorMatrix in="blur" mode="matrix"
+          values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 20 -10" result="goo"/>
+        <feBlend in="SourceGraphic" in2="goo"/>
+      </filter>
+    </defs>
+  </svg>
+
+  <div className="relative filter [filter:url(#goo)]">
+    <h1 className="relative text-3xl font-extrabold text-transparent bg-gradient-to-r from-green-400 to-cyan-400 bg-clip-text">
+      TrackLab
+    </h1>
+    {/* petites bulles “réactifs” autour du texte */}
+    <span className="absolute -left-3 top-1 h-2 w-2 rounded-full bg-green-400 animate-[float1_3s_infinite]"></span>
+    <span className="absolute -left-1 -top-2 h-3 w-3 rounded-full bg-cyan-400 animate-[float2_4s_infinite]"></span>
+    <span className="absolute -right-2 -bottom-1 h-2 w-2 rounded-full bg-green-300 animate-[float3_3.5s_infinite]"></span>
+  </div>
+
+  <style>{`
+    @keyframes float1 { 0%,100%{ transform: translateY(0)} 50%{ transform: translateY(-6px)} }
+    @keyframes float2 { 0%,100%{ transform: translateY(0)} 50%{ transform: translateY(-10px)} }
+    @keyframes float3 { 0%,100%{ transform: translateY(0)} 50%{ transform: translateY(-7px)} }
+  `}</style>
+</div>
+
+</div>
+
+
 
       {/* Actions */}
       <div className="flex items-center gap-4">

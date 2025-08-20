@@ -1,6 +1,5 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react'
 import { useAuth } from '../context/AuthContext'
-import PostItPalette from './PostItPalette'
 import PostItNote from './PostItNote'
 import PostItManager from './PostItManager'
 import ImageItem from './ImageItems'
@@ -8,6 +7,8 @@ import { StickyNote } from '../types/notes'
 import LayersPanel from './LayersPanel'
 import TableManager from './TableManager'
 import TodoPanel from './TodoPanel'
+import HeaderBar, { Tool } from './HeaderBar'
+import DrawingLayer, { DrawingLayerRef } from './DrawingLayer'
 
 type DroppedImage = {
   id: string
@@ -22,11 +23,10 @@ type DroppedImage = {
 }
 
 const CANVAS_CONFIG = {
-  width: 8000,
-  height: 6000,
-  minZoom: 0.1,
+  width: 20000,
+  height: 15000,
   maxZoom: 3.0,
-  defaultZoom: 1,
+  defaultZoom: 0.5,
 }
 
 export default function LabLayout() {
@@ -36,65 +36,174 @@ export default function LabLayout() {
   const [notes, setNotes] = useState<StickyNote[]>([])
   const [images, setImages] = useState<DroppedImage[]>([])
   const [selectedColor, setSelectedColor] = useState('#ffeb3b')
-  const [drawingMode, setDrawingMode] = useState(false)
-  const [eraseMode, setEraseMode] = useState(false)
-  const [currentScale, setCurrentScale] = useState(CANVAS_CONFIG.defaultZoom)
+  const [currentScale, setCurrentScale] = useState(1)
   const [layersPanelOpen, setLayersPanelOpen] = useState(false)
   const [placementMode, setPlacementMode] = useState(false)
-  const [showTodo, setShowTodo] = useState(false) // ← Todo panel
+  const [showTodo, setShowTodo] = useState(false)
 
-  // Pan/zoom refs
-  const canvasRef = useRef<HTMLCanvasElement>(null)
+  // Drawing state
+  const [drawingMode, setDrawingMode] = useState(false)
+  const [activeTool, setActiveTool] = useState<Tool>('pencil')
+  const [activeColor, setActiveColor] = useState('#000000')
+  const [activeWidth, setActiveWidth] = useState(3)
+  const [showDrawingTools, setShowDrawingTools] = useState(false)
+
+  // Refs pan/zoom & DOM
+  const workspaceRef = useRef<HTMLDivElement>(null)
   const contentRef = useRef<HTMLDivElement>(null)
-  const scaleRef = useRef(CANVAS_CONFIG.defaultZoom)
-  const translateRef = useRef({
-    x: (window.innerWidth - CANVAS_CONFIG.width * CANVAS_CONFIG.defaultZoom) / 2,
-    y: (window.innerHeight - CANVAS_CONFIG.height * CANVAS_CONFIG.defaultZoom) / 2,
-  })
+  const drawingLayerRef = useRef<DrawingLayerRef>(null)
+  const scaleRef = useRef(1)
+  const minZoomRef = useRef(1)
+  const translateRef = useRef({ x: 0, y: 0 })
   const rafRef = useRef(0)
   const spacePressedRef = useRef(false)
 
-  const dragStateRef = useRef<{
-    isDragging: boolean
-    startX: number
-    startY: number
-    initialTranslate: { x: number; y: number }
-  }>({
+  const dragStateRef = useRef({
     isDragging: false,
     startX: 0,
     startY: 0,
     initialTranslate: { x: 0, y: 0 },
   })
 
-  // callback fourni par TableManager (bouton header → ajoute un tableau)
   const addTableFnRef = useRef<null | (() => void)>(null)
 
-  const updateTransform = () => {
+  // ---- helpers ----
+  const getWorkspaceRect = () => workspaceRef.current?.getBoundingClientRect()
+
+  const computeMinZoom = useCallback(() => {
+    const r = getWorkspaceRect()
+    const w = r?.width ?? window.innerWidth
+    const h = r?.height ?? window.innerHeight
+    
+    const fillZoom = Math.max(w / CANVAS_CONFIG.width, h / CANVAS_CONFIG.height)
+    return Math.max(fillZoom, 0.1)
+  }, [])
+
+  const centerTranslate = useCallback((scale: number) => {
+    const r = getWorkspaceRect()
+    const w = r?.width ?? window.innerWidth
+    const h = r?.height ?? window.innerHeight
+    
+    const worldWidth = CANVAS_CONFIG.width * scale
+    const worldHeight = CANVAS_CONFIG.height * scale
+    
+    return {
+      x: (w - worldWidth) / 2,
+      y: (h - worldHeight) / 2,
+    }
+  }, [])
+
+  const constrainTranslate = useCallback((translate: { x: number; y: number }, scale: number) => {
+    const r = getWorkspaceRect()
+    const w = r?.width ?? window.innerWidth
+    const h = r?.height ?? window.innerHeight
+    
+    const worldWidth = CANVAS_CONFIG.width * scale
+    const worldHeight = CANVAS_CONFIG.height * scale
+    
+    const minX = w - worldWidth
+    const maxX = 0
+    const minY = h - worldHeight
+    const maxY = 0
+    
+    return {
+      x: Math.min(Math.max(translate.x, minX), maxX),
+      y: Math.min(Math.max(translate.y, minY), maxY),
+    }
+  }, [])
+
+  const applyTransform = useCallback(() => {
     if (!contentRef.current) return
     contentRef.current.style.transform =
       `translate(${translateRef.current.x}px, ${translateRef.current.y}px) scale(${scaleRef.current})`
     setCurrentScale(scaleRef.current)
+  }, [])
+
+  const updateTransform = useCallback(() => {
+    cancelAnimationFrame(rafRef.current)
+    rafRef.current = requestAnimationFrame(applyTransform)
+  }, [applyTransform])
+
+  // ---- init + observe ----
+  useLayoutEffect(() => {
+    minZoomRef.current = computeMinZoom()
+    scaleRef.current = Math.max(CANVAS_CONFIG.defaultZoom, minZoomRef.current)
+    translateRef.current = centerTranslate(scaleRef.current)
+    applyTransform()
+
+    const el = workspaceRef.current
+    if (!el) return
+
+    const recalc = () => {
+      minZoomRef.current = computeMinZoom()
+      if (scaleRef.current < minZoomRef.current) {
+        scaleRef.current = minZoomRef.current
+      }
+      translateRef.current = centerTranslate(scaleRef.current)
+      applyTransform()
+    }
+
+    const ro = new ResizeObserver(recalc)
+    ro.observe(el)
+    window.addEventListener('resize', recalc)
+
+    recalc()
+
+    return () => {
+      ro.disconnect()
+      window.removeEventListener('resize', recalc)
+    }
+  }, [applyTransform, centerTranslate, computeMinZoom])
+
+  // ===== Drawing handlers =====
+  const handleToggleDrawing = () => {
+    setDrawingMode(!drawingMode)
+    if (placementMode) {
+      setPlacementMode(false)
+    }
   }
 
-  useEffect(() => {
-    updateTransform()
-  }, [])
+  const handleSetDrawingTool = (tool: Tool) => {
+    setActiveTool(tool)
+    drawingLayerRef.current?.setTool(tool)
+  }
+
+  const handleSetDrawingColor = (color: string) => {
+    setActiveColor(color)
+    drawingLayerRef.current?.setColor(color)
+  }
+
+  const handleSetDrawingWidth = (width: number) => {
+    setActiveWidth(width)
+    drawingLayerRef.current?.setWidth(width)
+  }
+
+  const handleClearDrawing = () => {
+    drawingLayerRef.current?.clear()
+  }
+
+  const handleUndoDrawing = () => {
+    drawingLayerRef.current?.undo()
+  }
 
   // ===== Notes =====
   const handleCreateNote = (color: string) => {
+    if (drawingMode) {
+      setDrawingMode(false)
+    }
     setSelectedColor(color)
     setPlacementMode(true)
   }
 
   const handleDrag = (id: string, dx: number, dy: number) => {
-    setNotes(prev => prev.map(note => {
-      if (note.id === id) {
+    setNotes(prev =>
+      prev.map(note => {
+        if (note.id !== id) return note
         const newX = Math.min(Math.max(note.x + dx, 0), CANVAS_CONFIG.width - 160)
         const newY = Math.min(Math.max(note.y + dy, 0), CANVAS_CONFIG.height - 160)
         return { ...note, x: newX, y: newY }
-      }
-      return note
-    }))
+      }),
+    )
   }
 
   const handleTextUpdate = (id: string, text: string) =>
@@ -104,10 +213,15 @@ export default function LabLayout() {
     setNotes(prev => prev.filter(n => n.id !== id))
 
   // ===== Images =====
-  const screenToWorld = (clientX: number, clientY: number) => ({
-    x: (clientX - translateRef.current.x) / scaleRef.current,
-    y: (clientY - translateRef.current.y) / scaleRef.current,
-  })
+  const screenToWorld = (clientX: number, clientY: number) => {
+    const r = getWorkspaceRect()
+    const localX = clientX - (r?.left ?? 0)
+    const localY = clientY - (r?.top ?? 0)
+    return {
+      x: (localX - translateRef.current.x) / scaleRef.current,
+      y: (localY - translateRef.current.y) / scaleRef.current,
+    }
+  }
 
   const fileToDataURL = (file: File) =>
     new Promise<string>((resolve, reject) => {
@@ -161,66 +275,6 @@ export default function LabLayout() {
   const bringImageToFront = (id: string) =>
     updateImage(id, { z: Date.now() })
 
-  // ===== Canvas Drawing =====
-  useEffect(() => {
-    const canvas = canvasRef.current
-    if (!canvas || !drawingMode) return
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return
-
-    ctx.imageSmoothingEnabled = true
-    ctx.lineJoin = 'round'
-    ctx.lineCap = 'round'
-
-    let drawing = false
-
-    const resizeCanvas = () => {
-      canvas.width = window.innerWidth
-      canvas.height = window.innerHeight
-    }
-
-    const getPos = (e: MouseEvent) => {
-      const rect = canvas.getBoundingClientRect()
-      return { x: e.clientX - rect.left, y: e.clientY - rect.top }
-    }
-
-    const startDraw = (e: MouseEvent) => {
-      if (spacePressedRef.current) return
-      drawing = true
-      const { x, y } = getPos(e)
-      ctx.beginPath()
-      ctx.moveTo(x, y)
-    }
-
-    const draw = (e: MouseEvent) => {
-      if (!drawing || spacePressedRef.current) return
-      const { x, y } = getPos(e)
-      ctx.globalCompositeOperation = eraseMode ? 'destination-out' : 'source-over'
-      ctx.lineWidth = eraseMode ? 20 : 2
-      ctx.strokeStyle = '#111'
-      ctx.lineTo(x, y)
-      ctx.stroke()
-    }
-
-    const endDraw = () => {
-      drawing = false
-      ctx.closePath()
-    }
-
-    resizeCanvas()
-    window.addEventListener('resize', resizeCanvas)
-    canvas.addEventListener('mousedown', startDraw)
-    canvas.addEventListener('mousemove', draw)
-    window.addEventListener('mouseup', endDraw)
-
-    return () => {
-      canvas.removeEventListener('mousedown', startDraw)
-      canvas.removeEventListener('mousemove', draw)
-      window.removeEventListener('mouseup', endDraw)
-      window.removeEventListener('resize', resizeCanvas)
-    }
-  }, [drawingMode, eraseMode])
-
   // ===== Zoom molette =====
   useEffect(() => {
     const handleWheel = (e: WheelEvent) => {
@@ -228,25 +282,34 @@ export default function LabLayout() {
       e.preventDefault()
 
       const delta = e.deltaY * 0.001
+      const unclamped = scaleRef.current * (1 - delta)
       const newScale = Math.min(
-        Math.max(scaleRef.current * (1 - delta), CANVAS_CONFIG.minZoom),
-        CANVAS_CONFIG.maxZoom,
+        Math.max(unclamped, minZoomRef.current),
+        CANVAS_CONFIG.maxZoom
       )
-      const scaleFactor = newScale / scaleRef.current
 
-      const mouseX = e.clientX
-      const mouseY = e.clientY
+      const r = getWorkspaceRect()
+      const mouseX = e.clientX - (r?.left ?? 0)
+      const mouseY = e.clientY - (r?.top ?? 0)
+
+      const scaleFactor = newScale / scaleRef.current
       translateRef.current.x = mouseX - (mouseX - translateRef.current.x) * scaleFactor
       translateRef.current.y = mouseY - (mouseY - translateRef.current.y) * scaleFactor
+      translateRef.current = constrainTranslate(translateRef.current, newScale)
       scaleRef.current = newScale
 
-      cancelAnimationFrame(rafRef.current)
-      rafRef.current = requestAnimationFrame(updateTransform)
+      updateTransform()
     }
 
     window.addEventListener('wheel', handleWheel, { passive: false })
     return () => window.removeEventListener('wheel', handleWheel)
-  }, [])
+  }, [updateTransform, constrainTranslate])
+
+  const getCursor = useCallback(() => {
+    if (placementMode) return 'crosshair'
+    if (drawingMode) return activeTool === 'eraser' ? 'grab' : 'crosshair'
+    return 'default'
+  }, [placementMode, drawingMode, activeTool])
 
   // ===== Clavier =====
   useEffect(() => {
@@ -256,13 +319,16 @@ export default function LabLayout() {
         spacePressedRef.current = true
         document.body.style.cursor = 'grab'
       }
-      if (e.code === 'Escape' && placementMode) setPlacementMode(false)
+      if (e.code === 'Escape') {
+        if (placementMode) setPlacementMode(false)
+        if (drawingMode) setDrawingMode(false)
+      }
     }
 
     const handleKeyUp = (e: KeyboardEvent) => {
       if (e.code === 'Space') {
         spacePressedRef.current = false
-        document.body.style.cursor = placementMode ? 'crosshair' : 'default'
+        document.body.style.cursor = getCursor()
       }
     }
 
@@ -273,9 +339,9 @@ export default function LabLayout() {
       window.removeEventListener('keyup', handleKeyUp)
       document.body.style.cursor = 'default'
     }
-  }, [placementMode])
+  }, [placementMode, drawingMode, getCursor])
 
-  // ===== Pan (Espace + drag) =====
+  // ===== Pan =====
   useEffect(() => {
     const handleMouseDown = (e: MouseEvent) => {
       if (!spacePressedRef.current || e.button !== 0) return
@@ -296,17 +362,19 @@ export default function LabLayout() {
       const dx = e.clientX - dragStateRef.current.startX
       const dy = e.clientY - dragStateRef.current.startY
 
-      translateRef.current.x = dragStateRef.current.initialTranslate.x + dx
-      translateRef.current.y = dragStateRef.current.initialTranslate.y + dy
+      const newTranslate = {
+        x: dragStateRef.current.initialTranslate.x + dx,
+        y: dragStateRef.current.initialTranslate.y + dy,
+      }
+      translateRef.current = constrainTranslate(newTranslate, scaleRef.current)
 
-      cancelAnimationFrame(rafRef.current)
-      rafRef.current = requestAnimationFrame(updateTransform)
+      updateTransform()
     }
 
     const handleMouseUp = () => {
       if (!dragStateRef.current.isDragging) return
       dragStateRef.current.isDragging = false
-      document.body.style.cursor = spacePressedRef.current ? 'grab' : placementMode ? 'crosshair' : 'default'
+      document.body.style.cursor = spacePressedRef.current ? 'grab' : getCursor()
     }
 
     window.addEventListener('mousedown', handleMouseDown)
@@ -318,7 +386,7 @@ export default function LabLayout() {
       window.removeEventListener('mousemove', handleMouseMove)
       window.removeEventListener('mouseup', handleMouseUp)
     }
-  }, [placementMode])
+  }, [updateTransform, constrainTranslate, getCursor])
 
   const isPanTarget = (target: EventTarget | null): boolean => {
     if (!(target instanceof HTMLElement)) return false
@@ -328,7 +396,8 @@ export default function LabLayout() {
       !target.closest('.image-item') &&
       !target.closest('.note-modal') &&
       !target.closest('.table-item') &&
-      !target.closest('.todo-panel')
+      !target.closest('.todo-panel') &&
+      !target.closest('.layers-panel')
     )
   }
 
@@ -343,143 +412,101 @@ export default function LabLayout() {
     if (file) await addImageFromFile(file, e.clientX, e.clientY)
   }
 
+  // ===== Reset vue =====
   const resetView = () => {
-    scaleRef.current = CANVAS_CONFIG.defaultZoom
-    translateRef.current = {
-      x: (window.innerWidth - CANVAS_CONFIG.width * CANVAS_CONFIG.defaultZoom) / 2,
-      y: (window.innerHeight - CANVAS_CONFIG.height * CANVAS_CONFIG.defaultZoom) / 2,
-    }
-    setCurrentScale(CANVAS_CONFIG.defaultZoom)
-    cancelAnimationFrame(rafRef.current)
-    rafRef.current = requestAnimationFrame(updateTransform)
+    minZoomRef.current = computeMinZoom()
+    scaleRef.current = Math.max(CANVAS_CONFIG.defaultZoom, minZoomRef.current)
+    translateRef.current = centerTranslate(scaleRef.current)
+    setCurrentScale(scaleRef.current)
+    updateTransform()
+  }
+
+  // ===== Handlers LayersPanel =====
+  const handleLayerDeleteFromPanel = (layerId: string) => {
+    handleDelete(layerId)
+    deleteImage(layerId)
+  }
+
+  const handleLayerRenameFromPanel = (layerId: string, newName: string) => {
+    setNotes(prev => prev.map(n => (n.id === layerId ? { ...n, text: newName } : n)))
+    setImages(prev => prev.map(img => (img.id === layerId ? { ...img, note: newName } : img)))
   }
 
   return (
     <div
-      className={`fixed inset-0 flex flex-col overflow-hidden bg-gradient-to-br from-[#e0f7ff] to-[#dbeafe] ${
-        drawingMode ? 'cursor-crosshair' : placementMode ? 'cursor-crosshair' : ''
-      }`}
+      className={`fixed inset-0 flex flex-col overflow-hidden ${getCursor() === 'crosshair' ? 'cursor-crosshair' : ''}`}
     >
       {/* LayersPanel */}
       <LayersPanel
         notes={notes}
         images={images}
-        onLayerSelect={(layerId: string, multiSelect?: boolean) => {
+        onLayerSelect={(layerId, multiSelect) => {
           console.log('Layer selected:', layerId, multiSelect)
         }}
-        onLayerVisibilityToggle={(layerId: string, visible: boolean) => {
+        onLayerVisibilityToggle={(layerId, visible) => {
           console.log('Toggle visibility:', layerId, visible)
         }}
-        onLayerLockToggle={(layerId: string, locked: boolean) => {
+        onLayerLockToggle={(layerId, locked) => {
           console.log('Toggle lock:', layerId, locked)
         }}
-        onLayerDelete={(layerId: string) => {
-          handleDelete(layerId)
-          deleteImage(layerId)
-        }}
-        onLayerRename={(layerId: string, newName: string) => {
-          console.log('Rename:', layerId, newName)
-        }}
+        onLayerDelete={handleLayerDeleteFromPanel}
+        onLayerRename={handleLayerRenameFromPanel}
         isOpen={layersPanelOpen}
         onToggle={() => setLayersPanelOpen(!layersPanelOpen)}
       />
 
       {/* Header */}
-      <div
-        className="h-[72px] flex-shrink-0 bg-white shadow-lg z-20 flex items-center justify-between px-6 py-4"
-        style={{ marginLeft: layersPanelOpen ? '320px' : '0px', transition: 'margin-left 0.3s ease' }}
-      >
-        <div className="flex items-center gap-2">
-          <img src="/logo2.png" alt="TrackLab logo" className="w-20 h-17 drop-shadow-xl" />
-          <h1 className="text-3xl font-bold text-fuchsia-950">TrackLab </h1>
-        </div>
-
-        <div className="flex items-center gap-4">
-          <span className="text-sm text-gray-600">Connecté : {user?.email || 'Utilisateur'}</span>
-
-          <div className="flex items-center gap-2 px-3 py-1 text-sm bg-gray-100 rounded-lg">
-            <span>Zoom: {Math.round(currentScale * 100)}%</span>
-            <button
-              onClick={resetView}
-              className="px-2 py-1 text-xs text-white bg-blue-500 rounded hover:bg-blue-600"
-            >
-              Reset
-            </button>
-          </div>
-
-          {/* Todo button */}
-          <button
-            onClick={() => setShowTodo(true)}
-            className="px-3 py-2 text-sm text-gray-700 bg-gray-200 rounded-lg hover:bg-gray-300"
-            title="Ouvrir la to-do"
-          >
-            📋 To-do
-          </button>
-
-          {/* Tableau */}
-          <button
-            onClick={() => addTableFnRef.current?.()}
-            className="px-3 py-2 text-sm text-gray-700 bg-gray-200 rounded-lg hover:bg-gray-300"
-            title="Ajouter un tableau"
-          >
-            📊 Tableau
-          </button>
-
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-gray-600">Post-it :</span>
-            <PostItPalette onCreateNote={handleCreateNote} />
-          </div>
-
-          {placementMode && (
-            <button
-              onClick={() => setPlacementMode(false)}
-              className="px-3 py-2 text-sm text-red-600 transition-colors bg-red-100 rounded-lg hover:bg-red-200"
-            >
-              ✕
-            </button>
-          )}
-
-          <button
-            onClick={() => setDrawingMode(p => !p)}
-            className={`px-3 py-2 text-sm rounded-lg transition-colors ${
-              drawingMode ? 'bg-green-500 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-            }`}
-          >
-            ✏️ Dessiner
-          </button>
-
-          <button
-            onClick={() => setEraseMode(p => !p)}
-            className={`px-3 py-2 text-sm rounded-lg transition-colors ${
-              eraseMode ? 'bg-red-500 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-            }`}
-          >
-            🧽 Effacer
-          </button>
-        </div>
-      </div>
+      <HeaderBar
+        user={user}
+        currentScale={currentScale}
+        layersPanelOpen={layersPanelOpen}
+        placementMode={placementMode}
+        drawingMode={drawingMode}
+        activeTool={activeTool}
+        activeColor={activeColor}
+        activeWidth={activeWidth}
+        showDrawingTools={showDrawingTools}
+        onResetView={resetView}
+        onShowTodo={() => setShowTodo(true)}
+        onAddTable={() => addTableFnRef.current?.()}
+        onCreateNote={handleCreateNote}
+        onCancelPlacement={() => setPlacementMode(false)}
+        onToggleDrawing={handleToggleDrawing}
+        onSetDrawingTool={handleSetDrawingTool}
+        onSetDrawingColor={handleSetDrawingColor}
+        onSetDrawingWidth={handleSetDrawingWidth}
+        onClearDrawing={handleClearDrawing}
+        onUndoDrawing={handleUndoDrawing}
+        onToggleDrawingTools={() => setShowDrawingTools(prev => !prev)}
+      />
 
       {/* Workspace */}
       <div
-        className="relative flex-1 overflow-hidden"
+        ref={workspaceRef}
+        className="relative flex-1 overflow-hidden bg-transparent"
         style={{ marginLeft: layersPanelOpen ? '320px' : '0px', transition: 'margin-left 0.3s ease' }}
         onDragOver={onDragOver}
         onDrop={onDrop}
       >
-        {/* Drawing layer */}
-        <canvas
-          ref={canvasRef}
-          className="absolute top-0 left-0 z-10 pointer-events-auto"
-          style={{
-            pointerEvents: drawingMode ? 'auto' : 'none',
-            cursor: drawingMode ? 'crosshair' : 'default',
+        {/* DrawingLayer - au niveau workspace, pas dans le monde */}
+        <DrawingLayer
+          ref={drawingLayerRef}
+          active={drawingMode && !showDrawingTools} // Désactiver si modal ouverte
+          tool={activeTool}
+          color={activeColor}
+          width={activeWidth}
+          transform={{
+            x: translateRef.current.x,
+            y: translateRef.current.y,
+            scale: scaleRef.current
           }}
+          worldSize={{ width: CANVAS_CONFIG.width, height: CANVAS_CONFIG.height }}
         />
 
-        {/* World */}
+        {/* Monde zoomable */}
         <div
           ref={contentRef}
-          className="absolute top-0 left-0 border border-gray-300 border-dashed bg-white/5"
+          className="absolute top-0 left-0 border border-gray-300 border-dashed bg-gradient-to-br from-[#e0f7ff] to-[#dbeafe] z-0"
           style={{
             width: CANVAS_CONFIG.width,
             height: CANVAS_CONFIG.height,
@@ -487,7 +514,7 @@ export default function LabLayout() {
             transform: `translate(${translateRef.current.x}px, ${translateRef.current.y}px) scale(${scaleRef.current})`,
           }}
         >
-          {/* Grid */}
+          {/* Grille */}
           <div
             className="absolute inset-0 opacity-20"
             style={{
@@ -543,9 +570,7 @@ export default function LabLayout() {
             worldHeight={CANVAS_CONFIG.height}
             translate={translateRef.current}
             scale={scaleRef.current}
-            setAddTableFn={fn => {
-              addTableFnRef.current = fn
-            }}
+            setAddTableFn={fn => { addTableFnRef.current = fn }}
           />
         </div>
       </div>
@@ -553,7 +578,7 @@ export default function LabLayout() {
       {/* Aide */}
       <div className="absolute z-20 p-3 text-sm text-white rounded-lg bottom-4 left-4 bg-black/70">
         <div className="mb-1 font-medium">Navigation :</div>
-        <div>• <kbd className="px-1 bg-gray-600 rounded">Espace + Glisser</kbd> : Déplacer la vue</div>
+        <div>• <kbd className="px-1 bg-gray-600 rounded">Espace + Clic + Glisser</kbd> : Déplacer la vue</div>
         <div>• <kbd className="px-1 bg-gray-600 rounded">Molette</kbd> : Zoomer/Dézoomer</div>
         <div>• Glisser une image pour l'ajouter</div>
         {placementMode && (
@@ -562,9 +587,15 @@ export default function LabLayout() {
             <div>• <kbd className="px-1 bg-gray-600 rounded">Escape</kbd> : Annuler</div>
           </div>
         )}
+        {drawingMode && (
+          <div className="mt-2 text-green-300">
+            <div>• Mode dessin actif - {activeTool === 'eraser' ? 'Gomme' : 'Crayon'}</div>
+            <div>• <kbd className="px-1 bg-gray-600 rounded">Escape</kbd> : Quitter le mode dessin</div>
+          </div>
+        )}
       </div>
 
-      {/* TodoPanel au niveau racine */}
+      {/* TodoPanel */}
       <div className="todo-panel">
         <TodoPanel open={showTodo} onClose={() => setShowTodo(false)} />
       </div>

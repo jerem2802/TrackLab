@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react'
 import { ChevronRight, ChevronDown, Folder, FolderOpen, Eye, EyeOff, Lock, Unlock, Edit2, Trash2, Ungroup, MoreVertical } from 'lucide-react'
 import LayerItem from './LayerItem'
-import { LayerElement, LayerOperations, getLayerDisplayName } from '../types/layers'
+import { LayerElement, LayerOperations } from '../types/layers'
 
 interface Props {
   group: LayerElement

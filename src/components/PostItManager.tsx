@@ -1,6 +1,12 @@
 import { useEffect } from 'react'
 import { StickyNote } from '../types/notes'
 
+// Importer les dimensions depuis votre config
+const CANVAS_CONFIG = {
+  width: 20000,
+  height: 15000,
+}
+
 interface Props {
   selectedColor: string
   scale: number
@@ -34,15 +40,15 @@ export default function PostItManager({ selectedColor, scale, contentRef, setNot
       const x = (e.clientX - rect.left) / scale
       const y = (e.clientY - rect.top) / scale
 
-      // S'assurer que les coordonnées sont dans les limites du canvas
-      if (x < 0 || y < 0 || x > 8000 || y > 6000) return
+      // S'assurer que les coordonnées sont dans les limites du canvas (NOUVELLES DIMENSIONS)
+      if (x < 0 || y < 0 || x > CANVAS_CONFIG.width || y > CANVAS_CONFIG.height) return
 
       // Créer le nouveau post-it
       const newNote: StickyNote = {
         id: Date.now().toString(),
         text: '',
-        x: Math.max(0, Math.min(x - 80, 8000 - 160)), // Centrer et contraindre
-        y: Math.max(0, Math.min(y - 80, 6000 - 160)),
+        x: Math.max(0, Math.min(x - 80, CANVAS_CONFIG.width - 160)), // Centrer et contraindre avec nouvelles dimensions
+        y: Math.max(0, Math.min(y - 80, CANVAS_CONFIG.height - 160)),
         color: selectedColor,
         visible: true,
         locked: false

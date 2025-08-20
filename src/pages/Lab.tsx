@@ -8,14 +8,15 @@ export default function Lab() {
   const navigate = useNavigate()
 
   useEffect(() => {
-    if (!isAuthenticated) {
-      navigate('/login')
-    }
+    if (!isAuthenticated) navigate('/login')
   }, [isAuthenticated, navigate])
 
-  // Si pas connecté, on redirige (pas besoin d'afficher quoi que ce soit)
   if (!isAuthenticated) return null
 
-  // Si connecté, on affiche le LabLayout (qui utilise déjà useAuth() en interne)
-  return <LabLayout />
+  // 🔐 Plein écran, aucune marge/padding héritée du layout parent
+  return (
+    <div className="fixed inset-0 w-screen h-screen overflow-hidden">
+      <LabLayout />
+    </div>
+  )
 }

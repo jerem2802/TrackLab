@@ -26,7 +26,7 @@ const CANVAS_CONFIG = {
   width: 20000,
   height: 15000,
   maxZoom: 3.0,
-  defaultZoom: 0.5,
+  defaultZoom: 1,
 }
 
 export default function LabLayout() {

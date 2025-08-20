@@ -218,9 +218,28 @@ export default function HeaderBar({
           {/* Dropdown */}
           {showDrawingTools && (
             <div className="absolute right-0 z-[60] mt-2 bg-white border rounded-lg shadow-xl top-full w-80">
-              <div className="p-4">
-                <div className="flex items-center justify-between mb-3">
-                  <h3 className="font-semibold">🎨 Outils de dessin</h3>
+              <div className="p-4 bg-gray-600">
+                <div className="flex items-center justify-between mb-1">
+                  <img src="fiole_rouge.png" alt="" className='h-16 w-18' />
+                 <div className="relative inline-block">
+  <h3
+    className="relative z-10 inline-block text-2xl font-extrabold text-transparent bg-gradient-to-r from-green-400 to-cyan-400 bg-clip-text"
+  >
+    InkLab
+  </h3>
+
+  {/* bulles flottantes */}
+  <span className="absolute -left-3 top-0 h-2 w-2 rounded-full bg-green-400 animate-[float1_3s_infinite]" />
+  <span className="absolute -left-1 -top-2 h-3 w-3 rounded-full bg-cyan-400 animate-[float2_4s_infinite]" />
+  <span className="absolute -right-2 -bottom-1 h-2 w-2 rounded-full bg-green-300 animate-[float3_3.5s_infinite]" />
+
+  <style>{`
+    @keyframes float1 { 0%,100%{ transform: translateY(0)} 50%{ transform: translateY(-6px)} }
+    @keyframes float2 { 0%,100%{ transform: translateY(0)} 50%{ transform: translateY(-10px)} }
+    @keyframes float3 { 0%,100%{ transform: translateY(0)} 50%{ transform: translateY(-7px)} }
+  `}</style>
+</div>
+
                   <button
                     onClick={onToggleDrawingTools}
                     className="text-gray-400 hover:text-gray-600"
@@ -231,8 +250,8 @@ export default function HeaderBar({
 
                 {/* État actuel */}
                 <div className="p-2 mb-4 text-sm rounded bg-gray-50">
-                  <div className="flex items-center gap-2">
-                    <span>Outil actuel :</span>
+                  <div className="flex items-center gap-2 bg-gray-500">
+                    
                     <span className="font-medium">
                       {tools.find(t => t.name === activeTool)?.icon} {tools.find(t => t.name === activeTool)?.label}
                     </span>

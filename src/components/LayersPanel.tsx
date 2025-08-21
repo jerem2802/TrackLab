@@ -9,6 +9,7 @@ interface Props {
   // État des éléments du canvas
   notes: Array<{ id: string; text: string; color: string }>
   images: Array<{ id: string; src: string; width: number; height: number; note?: string }>
+  wireframes: Array<{ id: string; type: string; text?: string; variant?: string }>
   // Callbacks pour synchroniser avec le canvas
   onLayerSelect: (layerId: string, multiSelect?: boolean) => void
   onLayerVisibilityToggle: (layerId: string, visible: boolean) => void
@@ -23,6 +24,7 @@ interface Props {
 export default function LayersPanel({
   notes,
   images,
+  wireframes,
   onLayerSelect,
   onLayerVisibilityToggle,
   onLayerLockToggle,
@@ -79,13 +81,31 @@ export default function LayersPanel({
       }
     })
 
+    // Wireframes - MÊME PATTERN QUE LES IMAGES
+    wireframes.forEach(wireframe => {
+      newLayers[wireframe.id] = {
+        id: wireframe.id,
+        name: wireframe.text || wireframe.type,
+        type: 'wireframe',
+        visible: true,
+        locked: false,
+        selected: layersState.selectedLayers.includes(wireframe.id),
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        data: {
+          wireframeType: wireframe.type,
+          variant: wireframe.variant
+        }
+      }
+    })
+
     // ⚡ Remplacer complètement → supprime aussi les orphelins
     setLayersState(prev => ({
       ...prev,
       layers: newLayers,
       selectedLayers: prev.selectedLayers.filter(id => newLayers[id])
     }))
-  }, [notes, images])
+  }, [notes, images, wireframes])
 
   // Recherche
   const filteredLayers = useMemo(() => {
@@ -281,7 +301,7 @@ export default function LayersPanel({
     }
   }
 
-  const hasElements = notes.length > 0 || images.length > 0
+  const hasElements = notes.length > 0 || images.length > 0 || wireframes.length > 0
 
   if (!isOpen) {
     return (
@@ -314,7 +334,7 @@ export default function LayersPanel({
           <div className="text-center text-gray-500">
             <Folder size={48} className="mx-auto mb-3 text-gray-300" />
             <p className="text-sm">Aucun élément sur le canvas</p>
-            <p className="mt-1 text-xs">Ajoutez des post-its ou images pour les voir ici</p>
+            <p className="mt-1 text-xs">Ajoutez des post-its, images ou wireframes pour les voir ici</p>
           </div>
         </div>
       ) : (

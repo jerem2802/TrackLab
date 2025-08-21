@@ -1,6 +1,6 @@
 // Types pour le système de layers (panel latéral)
 
-export type LayerType = 'note' | 'image' | 'group' | 'drawing'
+export type LayerType = 'note' | 'image' | 'group' | 'drawing' | 'wireframe'
 
 export interface LayerElement {
   id: string
@@ -24,6 +24,9 @@ export interface LayerElement {
     height?: number
     // Pour les groupes
     collapsed?: boolean
+    // Pour les wireframes
+    wireframeType?: string
+    variant?: string
   }
 }
 
@@ -81,6 +84,8 @@ export const getLayerDisplayName = (layer: LayerElement): string => {
       return `Groupe (${layer.children?.length || 0} éléments)`
     case 'drawing':
       return 'Dessin'
+    case 'wireframe':
+      return layer.data?.wireframeType || 'Wireframe'
     default:
       return 'Élément'
   }
@@ -96,6 +101,8 @@ export const getLayerIcon = (type: LayerType): string => {
       return '📁'
     case 'drawing':
       return '✏️'
+    case 'wireframe':
+      return '🔧'
     default:
       return '📄'
   }

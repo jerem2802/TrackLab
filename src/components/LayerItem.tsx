@@ -213,6 +213,19 @@ export default function LayerItem({ layer, isSelected, operations, indentLevel =
           </span>
         )}
 
+      {/* Pour les wireframes : afficher l'icône selon le type */}
+{layer.type === 'wireframe' && layer.data && (
+  <span className="text-xs" title={`Wireframe: ${layer.data.wireframeType || 'unknown'}`}>
+    {layer.data.wireframeType === 'desktop' && '🖥️'}
+    {layer.data.wireframeType === 'mobile' && '📱'}
+    {layer.data.wireframeType === 'button' && '🔲'}
+    {layer.data.wireframeType === 'input' && '📝'}
+    {layer.data.wireframeType === 'card' && '🃏'}
+    {layer.data.wireframeType === 'text' && '📄'}
+    {layer.data.wireframeType === 'image' && '🖼️'}
+  </span>
+)}
+
         {/* Indicateur de texte pour les notes */}
         {layer.type === 'note' && layer.data?.text && (
           <span className="text-xs text-gray-400" title="Contient du texte">

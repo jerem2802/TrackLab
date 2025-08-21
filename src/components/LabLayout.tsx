@@ -9,6 +9,8 @@ import TableManager from './TableManager'
 import TodoPanel from './TodoPanel'
 import HeaderBar, { Tool } from './HeaderBar'
 import DrawingLayer, { DrawingLayerRef } from './DrawingLayer'
+import BottomToolbar from './BottomToolbar'
+import WireframeElement from './WireframeElement'
 
 type DroppedImage = {
   id: string
@@ -20,6 +22,20 @@ type DroppedImage = {
   z?: number
   createdAt: number
   note?: string
+}
+
+// ⬇️ CORRECTION : types wireframe corrects
+type BottomToolId = 'select' | 'desktop' | 'mobile' | 'diamond' | 'arrow' | 'line' | 'text' | 'image' | 'button' | 'input' | 'card'
+type WireEl = {
+  id: string
+  type: BottomToolId
+  x: number
+  y: number
+  w: number
+  h: number
+  z: number
+  text?: string
+  variant?: string
 }
 
 const CANVAS_CONFIG = {
@@ -40,6 +56,11 @@ export default function LabLayout() {
   const [layersPanelOpen, setLayersPanelOpen] = useState(false)
   const [placementMode, setPlacementMode] = useState(false)
   const [showTodo, setShowTodo] = useState(false)
+
+  // ⬇️ CORRECTION : types corrects
+  const [activeBottomTool, setActiveBottomTool] = useState<BottomToolId>('select')
+  const [wirePlacement, setWirePlacement] = useState<{type: BottomToolId, variant?: string} | null>(null)
+  const [wireEls, setWireEls] = useState<WireEl[]>([])
 
   // Drawing state
   const [drawingMode, setDrawingMode] = useState(false)
@@ -158,9 +179,8 @@ export default function LabLayout() {
   // ===== Drawing handlers =====
   const handleToggleDrawing = () => {
     setDrawingMode(!drawingMode)
-    if (placementMode) {
-      setPlacementMode(false)
-    }
+    if (placementMode) setPlacementMode(false)
+    if (wirePlacement) setWirePlacement(null)
   }
 
   const handleSetDrawingTool = (tool: Tool) => {
@@ -188,9 +208,8 @@ export default function LabLayout() {
 
   // ===== Notes =====
   const handleCreateNote = (color: string) => {
-    if (drawingMode) {
-      setDrawingMode(false)
-    }
+    if (drawingMode) setDrawingMode(false)
+    if (wirePlacement) setWirePlacement(null)
     setSelectedColor(color)
     setPlacementMode(true)
   }
@@ -211,6 +230,41 @@ export default function LabLayout() {
 
   const handleDelete = (id: string) =>
     setNotes(prev => prev.filter(n => n.id !== id))
+
+  // ===== Wireframe handlers =====
+  const handleWireframeDrag = (id: string, dx: number, dy: number) => {
+    setWireEls(prev =>
+      prev.map(wire => {
+        if (wire.id !== id) return wire
+        const newX = Math.min(Math.max(wire.x + dx, 0), CANVAS_CONFIG.width - wire.w)
+        const newY = Math.min(Math.max(wire.y + dy, 0), CANVAS_CONFIG.height - wire.h)
+        return { ...wire, x: newX, y: newY }
+      }),
+    )
+  }
+
+  const handleWireframeResize = (id: string, newWidth: number, newHeight: number) => {
+    setWireEls(prev =>
+      prev.map(wire => {
+        if (wire.id !== id) return wire
+        const constrainedW = Math.min(Math.max(newWidth, 50), CANVAS_CONFIG.width - wire.x)
+        const constrainedH = Math.min(Math.max(newHeight, 50), CANVAS_CONFIG.height - wire.y)
+        return { ...wire, w: constrainedW, h: constrainedH }
+      }),
+    )
+  }
+
+  const handleWireframeTextUpdate = (id: string, text: string) => {
+    setWireEls(prev => prev.map(w => (w.id === id ? { ...w, text } : w)))
+  }
+
+  const handleWireframeDelete = (id: string) => {
+    setWireEls(prev => prev.filter(w => w.id !== id))
+  }
+
+  const handleWireframeFocus = (id: string) => {
+    setWireEls(prev => prev.map(w => (w.id === id ? { ...w, z: Date.now() } : w)))
+  }
 
   // ===== Images =====
   const screenToWorld = (clientX: number, clientY: number) => {
@@ -306,10 +360,10 @@ export default function LabLayout() {
   }, [updateTransform, constrainTranslate])
 
   const getCursor = useCallback(() => {
-    if (placementMode) return 'crosshair'
+    if (placementMode || wirePlacement) return 'crosshair'
     if (drawingMode) return activeTool === 'eraser' ? 'grab' : 'crosshair'
     return 'default'
-  }, [placementMode, drawingMode, activeTool])
+  }, [placementMode, wirePlacement, drawingMode, activeTool])
 
   // ===== Clavier =====
   useEffect(() => {
@@ -321,6 +375,7 @@ export default function LabLayout() {
       }
       if (e.code === 'Escape') {
         if (placementMode) setPlacementMode(false)
+        if (wirePlacement) setWirePlacement(null)
         if (drawingMode) setDrawingMode(false)
       }
     }
@@ -339,7 +394,7 @@ export default function LabLayout() {
       window.removeEventListener('keyup', handleKeyUp)
       document.body.style.cursor = 'default'
     }
-  }, [placementMode, drawingMode, getCursor])
+  }, [placementMode, wirePlacement, drawingMode, getCursor])
 
   // ===== Pan =====
   useEffect(() => {
@@ -397,7 +452,8 @@ export default function LabLayout() {
       !target.closest('.note-modal') &&
       !target.closest('.table-item') &&
       !target.closest('.todo-panel') &&
-      !target.closest('.layers-panel')
+      !target.closest('.layers-panel') &&
+      !target.closest('.wireframe-element')
     )
   }
 
@@ -425,11 +481,56 @@ export default function LabLayout() {
   const handleLayerDeleteFromPanel = (layerId: string) => {
     handleDelete(layerId)
     deleteImage(layerId)
+    handleWireframeDelete(layerId)
   }
 
   const handleLayerRenameFromPanel = (layerId: string, newName: string) => {
     setNotes(prev => prev.map(n => (n.id === layerId ? { ...n, text: newName } : n)))
     setImages(prev => prev.map(img => (img.id === layerId ? { ...img, note: newName } : img)))
+    handleWireframeTextUpdate(layerId, newName)
+  }
+
+  // ⬇️ AJOUT : placement wireframe simple
+  const handleWorldClick = (e: React.MouseEvent) => {
+    if (!wirePlacement) return
+    const { x, y } = screenToWorld(e.clientX, e.clientY)
+
+    // dimensions selon le type
+    const getDimensions = (type: BottomToolId, variant?: string) => {
+      switch (type) {
+        case 'desktop': return { w: 1440, h: 900, text: 'Desktop Frame' }
+        case 'mobile': return { w: 375, h: 667, text: 'Mobile Frame' }
+        case 'button': return { w: 120, h: 40, text: 'Button', variant }
+        case 'input': return { w: 200, h: 40, text: 'Input Field' }
+        case 'card': return { w: 300, h: 200, text: 'Card' }
+        case 'diamond': return { w: 200, h: 200 }
+        case 'line': 
+        case 'arrow': return { w: 240, h: 2 }
+        case 'text': return { w: 200, h: 40, text: 'Text' }
+        case 'image': return { w: 240, h: 160 }
+        default: return { w: 240, h: 160 }
+      }
+    }
+
+    const dims = getDimensions(wirePlacement.type, wirePlacement.variant)
+    const id = crypto.randomUUID()
+
+    setWireEls(prev => [
+      ...prev,
+      { 
+        id, 
+        type: wirePlacement.type, 
+        x: Math.max(0, Math.min(x, CANVAS_CONFIG.width - dims.w)), 
+        y: Math.max(0, Math.min(y, CANVAS_CONFIG.height - dims.h)), 
+        w: dims.w, 
+        h: dims.h, 
+        z: Date.now(),
+        text: dims.text,
+        variant: dims.variant
+      }
+    ])
+    setWirePlacement(null)
+    setActiveBottomTool('select')
   }
 
   return (
@@ -440,6 +541,7 @@ export default function LabLayout() {
       <LayersPanel
         notes={notes}
         images={images}
+        wireframes={wireEls}
         onLayerSelect={(layerId, multiSelect) => {
           console.log('Layer selected:', layerId, multiSelect)
         }}
@@ -488,10 +590,10 @@ export default function LabLayout() {
         onDragOver={onDragOver}
         onDrop={onDrop}
       >
-        {/* DrawingLayer - au niveau workspace, pas dans le monde */}
+        {/* DrawingLayer */}
         <DrawingLayer
           ref={drawingLayerRef}
-          active={drawingMode && !showDrawingTools} // Désactiver si modal ouverte
+          active={drawingMode && !showDrawingTools}
           tool={activeTool}
           color={activeColor}
           width={activeWidth}
@@ -513,6 +615,7 @@ export default function LabLayout() {
             transformOrigin: 'top left',
             transform: `translate(${translateRef.current.x}px, ${translateRef.current.y}px) scale(${scaleRef.current})`,
           }}
+          onClick={handleWorldClick}
         >
           {/* Grille */}
           <div
@@ -564,6 +667,23 @@ export default function LabLayout() {
             />
           ))}
 
+          {/* Wireframes avec composant interactif */}
+          {wireEls
+            .slice()
+            .sort((a, b) => a.z - b.z)
+            .map(w => (
+              <WireframeElement
+                key={w.id}
+                wireframe={w}
+                scale={currentScale}
+                onDrag={handleWireframeDrag}
+                onResize={handleWireframeResize}
+                onTextUpdate={handleWireframeTextUpdate}
+                onDelete={handleWireframeDelete}
+                onFocus={handleWireframeFocus}
+              />
+            ))}
+
           {/* Tables */}
           <TableManager
             worldWidth={CANVAS_CONFIG.width}
@@ -581,9 +701,9 @@ export default function LabLayout() {
         <div>• <kbd className="px-1 bg-gray-600 rounded">Espace + Clic + Glisser</kbd> : Déplacer la vue</div>
         <div>• <kbd className="px-1 bg-gray-600 rounded">Molette</kbd> : Zoomer/Dézoomer</div>
         <div>• Glisser une image pour l'ajouter</div>
-        {placementMode && (
+        {(placementMode || wirePlacement) && (
           <div className="mt-2 text-yellow-300">
-            <div>• <kbd className="px-1 bg-gray-600 rounded">Clic</kbd> : Placer le post-it</div>
+            <div>• <kbd className="px-1 bg-gray-600 rounded">Clic</kbd> : Placer l'élément</div>
             <div>• <kbd className="px-1 bg-gray-600 rounded">Escape</kbd> : Annuler</div>
           </div>
         )}
@@ -594,6 +714,26 @@ export default function LabLayout() {
           </div>
         )}
       </div>
+
+      {/* ⬇️ CORRECTION : Bottom Toolbar avec gestion correcte */}
+      <BottomToolbar
+        active={activeBottomTool}
+        onPick={(tool, variant) => {
+          setActiveBottomTool(tool)
+          
+          if (tool === 'select') {
+            setWirePlacement(null)
+            return
+          }
+          
+          // Outils de placement wireframe
+          if (['desktop', 'mobile', 'diamond', 'arrow', 'line', 'text', 'image', 'button', 'input', 'card'].includes(tool)) {
+            if (drawingMode) setDrawingMode(false)
+            if (placementMode) setPlacementMode(false)
+            setWirePlacement({ type: tool, variant })
+          }
+        }}
+      />
 
       {/* TodoPanel */}
       <div className="todo-panel">

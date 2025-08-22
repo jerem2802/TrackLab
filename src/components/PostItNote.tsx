@@ -1,79 +1,91 @@
-import { useState, useRef } from 'react';
-import { StickyNote } from '../types/notes';
-import { Pencil, X } from 'lucide-react';
+import { useState, useRef, useEffect } from 'react'
+import type { StickyNote } from '../types/notes'
 
-interface Props {
-  note: StickyNote;
-  scale: number;
-  onDrag: (id: string, dx: number, dy: number) => void;
-  onUpdateText: (id: string, text: string) => void;
-  onDelete: (id: string) => void;
+type Props = {
+  note: StickyNote
+  scale: number
+  onDrag: (id: string, dx: number, dy: number) => void
+  onUpdateText: (id: string, text: string) => void
+  onDelete: (id: string) => void
+  // ⬇️ branchement TextToolbar
+  onStartTextEdit?: (id: string, type: 'note', styles: StickyNote['textStyles']) => void
 }
 
-// Supprimez isEditing et setEditingId du Props si vous les aviez
+export default function PostItNote({
+  note,
+  scale,
+  onDrag,
+  onUpdateText,
+  onDelete,
+  onStartTextEdit,
+}: Props) {
+  const [isEditing, setIsEditing] = useState(false)
+  const [draft, setDraft] = useState(note.text)
+  const dragRef = useRef<{ x: number; y: number } | null>(null)
 
-export default function PostItNote({ note, scale, onDrag, onUpdateText, onDelete }: Props) {
-  const [editing, setEditing] = useState(false);
-  const start = useRef({ x: 0, y: 0 });
+  useEffect(() => setDraft(note.text), [note.text])
 
-  const handleMouseDown = (e: React.MouseEvent) => {
-    if (editing || e.button !== 0) return;
-    start.current = { x: e.clientX, y: e.clientY };
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('mouseup', handleMouseUp);
-  };
+  const startEdit = () => {
+    onStartTextEdit?.(note.id, 'note', note.textStyles || {})
+    setIsEditing(true)
+  }
 
-  const handleMouseMove = (e: MouseEvent) => {
-    const dx = (e.clientX - start.current.x) / scale;
-    const dy = (e.clientY - start.current.y) / scale;
-    onDrag(note.id, dx, dy);
-    start.current = { x: e.clientX, y: e.clientY };
-  };
+  const onMouseDown = (e: React.MouseEvent) => {
+    const t = e.target as HTMLElement
+    if (isEditing || t.closest('textarea,button,[data-no-drag]')) return
+    e.preventDefault()
+    e.stopPropagation()
+    dragRef.current = { x: e.clientX, y: e.clientY }
+    const onMove = (ev: MouseEvent) => {
+      if (!dragRef.current) return
+      const dx = (ev.clientX - dragRef.current.x) / scale
+      const dy = (ev.clientY - dragRef.current.y) / scale
+      onDrag(note.id, dx, dy)
+      dragRef.current = { x: ev.clientX, y: ev.clientY }
+    }
+    const onUp = () => {
+      dragRef.current = null
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }
 
-  const handleMouseUp = () => {
-    window.removeEventListener('mousemove', handleMouseMove);
-    window.removeEventListener('mouseup', handleMouseUp);
-  };
+  const commit = () => {
+    onUpdateText(note.id, draft)
+    setIsEditing(false)
+  }
 
   return (
     <div
-      className={`absolute w-40 h-40 p-2 rounded shadow-lg note cursor-grab active:cursor-grabbing select-none overflow-hidden ${editing ? 'z-50' : 'z-0'}`}
-      onMouseDown={handleMouseDown}
-      style={{ left: note.x, top: note.y, backgroundColor: note.color }}
+      className="absolute rounded-md shadow-lg note"
+      style={{ left: note.x, top: note.y, width: 160, height: 160, background: note.color }}
+      onMouseDown={onMouseDown}
+      onDoubleClick={(e) => { e.stopPropagation(); startEdit() }}
     >
-      <div className="absolute top-0 right-0 w-0 h-0 border-t-[30px] border-l-[30px] border-t-white border-l-transparent" />
+      <div className="absolute flex gap-1 right-1 top-1">
+        <button data-no-drag onClick={(e) => { e.stopPropagation(); startEdit() }} className="px-2 py-1 text-xs rounded bg-black/10">✏️</button>
+        <button data-no-drag onClick={(e) => { e.stopPropagation(); onDelete(note.id) }} className="px-2 py-1 text-xs rounded bg-black/10">×</button>
+      </div>
 
-      {!editing ? (
-        <>
-         <button
-  className="absolute z-10 p-1 text-xs bg-white rounded shadow top-1 left-1"
-  onClick={(e) => {
-    e.stopPropagation();
-    setEditing(true);
-  }}
->
-  <Pencil size={14} className="text-orange-500" />
-</button>
-<button
-  className="absolute z-10 p-1 text-xs bg-white rounded shadow top-1 right-1"
-  onClick={(e) => {
-    e.stopPropagation();
-    onDelete(note.id);
-  }}
->
-  <X size={14} className="text-purple-500" />
-</button>
-          <div className="break-words whitespace-pre-wrap">{note.text || ' '}</div>
-        </>
-      ) : (
-        <textarea
-          className="w-full h-full bg-transparent outline-none resize-none"
-          value={note.text}
-          onChange={(e) => onUpdateText(note.id, e.target.value)}
-          onBlur={() => setEditing(false)}
-          autoFocus
-        />
-      )}
+      <div className="w-full h-full p-3">
+        {isEditing ? (
+          <textarea
+            autoFocus
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={commit}
+            onKeyDown={(e) => { if (e.key === 'Escape') { setDraft(note.text); setIsEditing(false) } }}
+            className="w-full h-full bg-transparent outline-none resize-none"
+            style={{ whiteSpace: 'pre-wrap', ...(note.textStyles || {}) }}
+          />
+        ) : (
+          <div className="w-full h-full" style={{ whiteSpace: 'pre-wrap', ...(note.textStyles || {}) }}>
+            {note.text}
+          </div>
+        )}
+      </div>
     </div>
-  );
+  )
 }

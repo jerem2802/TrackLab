@@ -84,14 +84,53 @@ export const getLayerDisplayName = (layer: LayerElement): string => {
       return `Groupe (${layer.children?.length || 0} éléments)`
     case 'drawing':
       return 'Dessin'
-    case 'wireframe':
-      return layer.data?.wireframeType || 'Wireframe'
+    case 'wireframe': {
+      // Gestion spécifique pour les différents types de wireframes
+      const wireType = layer.data?.wireframeType
+      const variant = layer.data?.variant
+      
+      if (wireType === 'nav') {
+        return `Navigation ${variant || 'horizontal'}`
+      }
+      if (wireType === 'button') {
+        return `Button ${variant || 'primary'}`
+      }
+      if (wireType === 'desktop') {
+        return 'Desktop Frame'
+      }
+      if (wireType === 'mobile') {
+        return 'Mobile Frame'
+      }
+      if (wireType === 'input') {
+        return 'Input Field'
+      }
+      if (wireType === 'card') {
+        return 'Card Container'
+      }
+      if (wireType === 'text') {
+        return 'Text Element'
+      }
+      if (wireType === 'image') {
+        return 'Image Placeholder'
+      }
+      if (wireType === 'diamond') {
+        return 'Diamond Shape'
+      }
+      if (wireType === 'arrow') {
+        return 'Arrow'
+      }
+      if (wireType === 'line') {
+        return 'Line'
+      }
+      
+      return wireType || 'Wireframe'
+    }
     default:
       return 'Élément'
   }
 }
 
-export const getLayerIcon = (type: LayerType): string => {
+export const getLayerIcon = (type: LayerType, wireframeType?: string): string => {
   switch (type) {
     case 'note':
       return '📝'
@@ -102,8 +141,85 @@ export const getLayerIcon = (type: LayerType): string => {
     case 'drawing':
       return '✏️'
     case 'wireframe':
-      return '🔧'
+      // Icônes spécifiques selon le type de wireframe
+      switch (wireframeType) {
+        case 'nav':
+          return '🧭'
+        case 'button':
+          return '🔘'
+        case 'desktop':
+          return '🖥️'
+        case 'mobile':
+          return '📱'
+        case 'input':
+          return '📝'
+        case 'card':
+          return '🃏'
+        case 'text':
+          return '📄'
+        case 'image':
+          return '🖼️'
+        case 'diamond':
+          return '💎'
+        case 'arrow':
+          return '➡️'
+        case 'line':
+          return '➖'
+        default:
+          return '🔧'
+      }
     default:
       return '📄'
+  }
+}
+
+// Helper pour convertir les wireframes en LayerElement
+export const wireframeToLayerElement = (wireframe: {
+  id: string
+  type: string
+  x: number
+  y: number
+  w: number
+  h: number
+  z: number
+  text?: string
+  variant?: string
+}): LayerElement => ({
+  id: wireframe.id,
+  name: wireframe.text || '',
+  type: 'wireframe',
+  visible: true,
+  locked: false,
+  selected: false,
+  createdAt: wireframe.z,
+  updatedAt: wireframe.z,
+  data: {
+    wireframeType: wireframe.type,
+    variant: wireframe.variant,
+    width: wireframe.w,
+    height: wireframe.h
+  }
+})
+
+// Helper pour obtenir une couleur par type de wireframe (pour l'affichage)
+export const getWireframeColor = (wireframeType: string): string => {
+  switch (wireframeType) {
+    case 'nav':
+      return '#3B82F6' // blue
+    case 'button':
+      return '#10B981' // green
+    case 'input':
+      return '#F59E0B' // yellow
+    case 'card':
+      return '#8B5CF6' // purple
+    case 'desktop':
+    case 'mobile':
+      return '#6B7280' // gray
+    case 'text':
+      return '#EF4444' // red
+    case 'image':
+      return '#EC4899' // pink
+    default:
+      return '#9CA3AF' // gray-400
   }
 }

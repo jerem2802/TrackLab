@@ -11,6 +11,8 @@ import HeaderBar, { Tool } from './HeaderBar'
 import DrawingLayer, { DrawingLayerRef } from './DrawingLayer'
 import BottomToolbar from './BottomToolbar'
 import WireframeElement from './WireframeElement'
+import IconPicker from './IconPicker'
+import { TextStyles } from './TextToolbar'
 
 type DroppedImage = {
   id: string
@@ -24,8 +26,14 @@ type DroppedImage = {
   note?: string
 }
 
-// ⬇️ CORRECTION : types wireframe corrects
-type BottomToolId = 'select' | 'desktop' | 'mobile' | 'diamond' | 'arrow' | 'line' | 'text' | 'image' | 'button' | 'input' | 'card'
+type BottomToolId =
+  | 'select' | 'desktop' | 'mobile' | 'diamond' | 'arrow' | 'line'
+  | 'text' | 'image' | 'button' | 'input' | 'card' | 'nav' | 'icon'
+
+type TextStyle = Partial<Pick<React.CSSProperties,
+  'fontWeight' | 'fontStyle' | 'fontSize' | 'color' | 'textAlign' |
+  'textDecoration' | 'letterSpacing' | 'lineHeight' | 'fontFamily'>>
+
 type WireEl = {
   id: string
   type: BottomToolId
@@ -36,6 +44,9 @@ type WireEl = {
   z: number
   text?: string
   variant?: string
+  iconName?: string
+  parentId?: string
+  textStyles?: TextStyle
 }
 
 const CANVAS_CONFIG = {
@@ -57,10 +68,17 @@ export default function LabLayout() {
   const [placementMode, setPlacementMode] = useState(false)
   const [showTodo, setShowTodo] = useState(false)
 
-  // ⬇️ CORRECTION : types corrects
   const [activeBottomTool, setActiveBottomTool] = useState<BottomToolId>('select')
-  const [wirePlacement, setWirePlacement] = useState<{type: BottomToolId, variant?: string} | null>(null)
+  const [wirePlacement, setWirePlacement] = useState<{type: BottomToolId, variant?: string, iconName?: string} | null>(null)
   const [wireEls, setWireEls] = useState<WireEl[]>([])
+  const [showIconPicker, setShowIconPicker] = useState(false)
+
+  // TextToolbar state
+  const [textEditState, setTextEditState] = useState<{
+    id: string
+    type: string   // 'note' | wireframe type
+    styles: TextStyles
+  } | null>(null)
 
   // Drawing state
   const [drawingMode, setDrawingMode] = useState(false)
@@ -88,6 +106,51 @@ export default function LabLayout() {
 
   const addTableFnRef = useRef<null | (() => void)>(null)
 
+  // ---- text style conversions ----
+  const wireframeStylesToTextStyles = (wireframeStyles?: TextStyle): TextStyles => ({
+    fontFamily: (wireframeStyles?.fontFamily as string) || 'Roboto',
+    fontSize: typeof wireframeStyles?.fontSize === 'string'
+      ? parseFloat(wireframeStyles.fontSize) || 14
+      : wireframeStyles?.fontSize || 14,
+    fontWeight: (wireframeStyles?.fontWeight as 'normal' | 'bold') || 'normal',
+    fontStyle: (wireframeStyles?.fontStyle as 'normal' | 'italic') || 'normal',
+    textDecoration: (wireframeStyles?.textDecoration as 'none' | 'underline') || 'none',
+    textAlign: (wireframeStyles?.textAlign as 'left' | 'center' | 'right') || 'left',
+    color: wireframeStyles?.color || '#000000'
+  })
+
+  const textStylesToWireframeStyles = (s: TextStyles): TextStyle => ({
+    fontFamily: s.fontFamily,
+    fontSize: s.fontSize,
+    fontWeight: s.fontWeight,
+    fontStyle: s.fontStyle,
+    textDecoration: s.textDecoration,
+    textAlign: s.textAlign,
+    color: s.color
+  })
+
+  // ---- TextToolbar handlers ----
+  const handleStartTextEdit = (id: string, type: string, currentStyles: TextStyle) => {
+    setTextEditState({ id, type, styles: wireframeStylesToTextStyles(currentStyles) })
+  }
+
+  const handleApplyTextStyle = (newStyles: Partial<TextStyles>) => {
+    if (!textEditState) return
+    const updated = { ...textEditState.styles, ...newStyles }
+    setTextEditState(prev => (prev ? { ...prev, styles: updated } : null))
+
+    const css = textStylesToWireframeStyles(updated)
+
+    // appliquer soit au Post-it, soit au wireframe
+    if (textEditState.type === 'note') {
+      setNotes(prev => prev.map(n => n.id === textEditState.id ? { ...n, textStyles: css } : n))
+    } else {
+      setWireEls(prev => prev.map(w => w.id === textEditState.id ? { ...w, textStyles: css } : w))
+    }
+  }
+
+  const handleFinishTextEdit = () => setTextEditState(null)
+
   // ---- helpers ----
   const getWorkspaceRect = () => workspaceRef.current?.getBoundingClientRect()
 
@@ -95,7 +158,6 @@ export default function LabLayout() {
     const r = getWorkspaceRect()
     const w = r?.width ?? window.innerWidth
     const h = r?.height ?? window.innerHeight
-    
     const fillZoom = Math.max(w / CANVAS_CONFIG.width, h / CANVAS_CONFIG.height)
     return Math.max(fillZoom, 0.1)
   }, [])
@@ -103,30 +165,20 @@ export default function LabLayout() {
   const centerTranslate = useCallback((scale: number) => {
     const r = getWorkspaceRect()
     const w = r?.width ?? window.innerWidth
-    const h = r?.height ?? window.innerHeight
-    
+   const h = r?.height ?? window.innerHeight
     const worldWidth = CANVAS_CONFIG.width * scale
     const worldHeight = CANVAS_CONFIG.height * scale
-    
-    return {
-      x: (w - worldWidth) / 2,
-      y: (h - worldHeight) / 2,
-    }
+    return { x: (w - worldWidth) / 2, y: (h - worldHeight) / 2 }
   }, [])
 
   const constrainTranslate = useCallback((translate: { x: number; y: number }, scale: number) => {
     const r = getWorkspaceRect()
     const w = r?.width ?? window.innerWidth
     const h = r?.height ?? window.innerHeight
-    
     const worldWidth = CANVAS_CONFIG.width * scale
     const worldHeight = CANVAS_CONFIG.height * scale
-    
-    const minX = w - worldWidth
-    const maxX = 0
-    const minY = h - worldHeight
-    const maxY = 0
-    
+    const minX = w - worldWidth, maxX = 0
+    const minY = h - worldHeight, maxY = 0
     return {
       x: Math.min(Math.max(translate.x, minX), maxX),
       y: Math.min(Math.max(translate.y, minY), maxY),
@@ -167,9 +219,7 @@ export default function LabLayout() {
     const ro = new ResizeObserver(recalc)
     ro.observe(el)
     window.addEventListener('resize', recalc)
-
     recalc()
-
     return () => {
       ro.disconnect()
       window.removeEventListener('resize', recalc)
@@ -181,77 +231,61 @@ export default function LabLayout() {
     setDrawingMode(!drawingMode)
     if (placementMode) setPlacementMode(false)
     if (wirePlacement) setWirePlacement(null)
+    if (textEditState) setTextEditState(null)
   }
-
   const handleSetDrawingTool = (tool: Tool) => {
     setActiveTool(tool)
     drawingLayerRef.current?.setTool(tool)
   }
-
   const handleSetDrawingColor = (color: string) => {
     setActiveColor(color)
     drawingLayerRef.current?.setColor(color)
   }
-
   const handleSetDrawingWidth = (width: number) => {
     setActiveWidth(width)
     drawingLayerRef.current?.setWidth(width)
   }
-
-  const handleClearDrawing = () => {
-    drawingLayerRef.current?.clear()
-  }
-
-  const handleUndoDrawing = () => {
-    drawingLayerRef.current?.undo()
-  }
+  const handleClearDrawing = () => drawingLayerRef.current?.clear()
+  const handleUndoDrawing = () => drawingLayerRef.current?.undo()
 
   // ===== Notes =====
   const handleCreateNote = (color: string) => {
     if (drawingMode) setDrawingMode(false)
     if (wirePlacement) setWirePlacement(null)
+    if (textEditState) setTextEditState(null)
     setSelectedColor(color)
     setPlacementMode(true)
   }
-
   const handleDrag = (id: string, dx: number, dy: number) => {
-    setNotes(prev =>
-      prev.map(note => {
-        if (note.id !== id) return note
-        const newX = Math.min(Math.max(note.x + dx, 0), CANVAS_CONFIG.width - 160)
-        const newY = Math.min(Math.max(note.y + dy, 0), CANVAS_CONFIG.height - 160)
-        return { ...note, x: newX, y: newY }
-      }),
-    )
+    setNotes(prev => prev.map(note => {
+      if (note.id !== id) return note
+      const newX = Math.min(Math.max(note.x + dx, 0), CANVAS_CONFIG.width - 160)
+      const newY = Math.min(Math.max(note.y + dy, 0), CANVAS_CONFIG.height - 160)
+      return { ...note, x: newX, y: newY }
+    }))
   }
-
   const handleTextUpdate = (id: string, text: string) =>
     setNotes(prev => prev.map(n => (n.id === id ? { ...n, text } : n)))
-
   const handleDelete = (id: string) =>
     setNotes(prev => prev.filter(n => n.id !== id))
 
   // ===== Wireframe handlers =====
   const handleWireframeDrag = (id: string, dx: number, dy: number) => {
-    setWireEls(prev =>
-      prev.map(wire => {
-        if (wire.id !== id) return wire
-        const newX = Math.min(Math.max(wire.x + dx, 0), CANVAS_CONFIG.width - wire.w)
-        const newY = Math.min(Math.max(wire.y + dy, 0), CANVAS_CONFIG.height - wire.h)
-        return { ...wire, x: newX, y: newY }
-      }),
-    )
+    setWireEls(prev => prev.map(wire => {
+      if (wire.id !== id) return wire
+      const newX = Math.min(Math.max(wire.x + dx, 0), CANVAS_CONFIG.width - wire.w)
+      const newY = Math.min(Math.max(wire.y + dy, 0), CANVAS_CONFIG.height - wire.h)
+      return { ...wire, x: newX, y: newY }
+    }))
   }
 
   const handleWireframeResize = (id: string, newWidth: number, newHeight: number) => {
-    setWireEls(prev =>
-      prev.map(wire => {
-        if (wire.id !== id) return wire
-        const constrainedW = Math.min(Math.max(newWidth, 50), CANVAS_CONFIG.width - wire.x)
-        const constrainedH = Math.min(Math.max(newHeight, 50), CANVAS_CONFIG.height - wire.y)
-        return { ...wire, w: constrainedW, h: constrainedH }
-      }),
-    )
+    setWireEls(prev => prev.map(wire => {
+      if (wire.id !== id) return wire
+      const constrainedW = Math.min(Math.max(newWidth, 50), CANVAS_CONFIG.width - wire.x)
+      const constrainedH = Math.min(Math.max(newHeight, 50), CANVAS_CONFIG.height - wire.h)
+      return { ...wire, w: constrainedW, h: constrainedH }
+    }))
   }
 
   const handleWireframeTextUpdate = (id: string, text: string) => {
@@ -260,6 +294,7 @@ export default function LabLayout() {
 
   const handleWireframeDelete = (id: string) => {
     setWireEls(prev => prev.filter(w => w.id !== id))
+    if (textEditState?.id === id) setTextEditState(null)
   }
 
   const handleWireframeFocus = (id: string) => {
@@ -292,40 +327,29 @@ export default function LabLayout() {
     const W = 220, H = 160
     const constrainedX = Math.min(Math.max(x - W / 2, 0), CANVAS_CONFIG.width - W)
     const constrainedY = Math.min(Math.max(y - H / 2, 0), CANVAS_CONFIG.height - H)
-    setImages(prev => [
-      ...prev,
-      {
-        id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
-        x: constrainedX,
-        y: constrainedY,
-        width: W,
-        height: H,
-        src,
-        createdAt: Date.now(),
-        z: Date.now(),
-      },
-    ])
+    setImages(prev => [...prev, {
+      id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      x: constrainedX, y: constrainedY, width: W, height: H, src,
+      createdAt: Date.now(), z: Date.now(),
+    }])
   }
 
   const updateImage = (id: string, patch: Partial<DroppedImage>) => {
-    setImages(prev =>
-      prev.map(img => {
-        if (img.id !== id) return img
-        const updated = { ...img, ...patch }
-        if (patch.x !== undefined || patch.width !== undefined) {
-          updated.x = Math.min(Math.max(updated.x, 0), CANVAS_CONFIG.width - updated.width)
-        }
-        if (patch.y !== undefined || patch.height !== undefined) {
-          updated.y = Math.min(Math.max(updated.y, 0), CANVAS_CONFIG.height - updated.height)
-        }
-        return updated
-      }),
-    )
+    setImages(prev => prev.map(img => {
+      if (img.id !== id) return img
+      const updated = { ...img, ...patch }
+      if (patch.x !== undefined || patch.width !== undefined) {
+        updated.x = Math.min(Math.max(updated.x, 0), CANVAS_CONFIG.width - updated.width)
+      }
+      if (patch.y !== undefined || patch.height !== undefined) {
+        updated.y = Math.min(Math.max(updated.y, 0), CANVAS_CONFIG.height - updated.height)
+      }
+      return updated
+    }))
   }
 
   const deleteImage = (id: string) =>
     setImages(prev => prev.filter(it => it.id !== id))
-
   const bringImageToFront = (id: string) =>
     updateImage(id, { z: Date.now() })
 
@@ -337,10 +361,7 @@ export default function LabLayout() {
 
       const delta = e.deltaY * 0.001
       const unclamped = scaleRef.current * (1 - delta)
-      const newScale = Math.min(
-        Math.max(unclamped, minZoomRef.current),
-        CANVAS_CONFIG.maxZoom
-      )
+      const newScale = Math.min(Math.max(unclamped, minZoomRef.current), CANVAS_CONFIG.maxZoom)
 
       const r = getWorkspaceRect()
       const mouseX = e.clientX - (r?.left ?? 0)
@@ -367,16 +388,32 @@ export default function LabLayout() {
 
   // ===== Clavier =====
   useEffect(() => {
+    const isTypingTarget = (el: EventTarget | null) => {
+      if (!(el instanceof HTMLElement)) return false
+      const tag = el.tagName.toLowerCase()
+      return (
+        el.isContentEditable ||
+        tag === 'input' ||
+        tag === 'textarea' ||
+        tag === 'select' ||
+        !!el.closest('.text-toolbar')
+      )
+    }
+
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.code === 'Space' && !spacePressedRef.current) {
+      const typing = isTypingTarget(e.target)
+
+      if (e.code === 'Space' && !spacePressedRef.current && !typing) {
         e.preventDefault()
         spacePressedRef.current = true
         document.body.style.cursor = 'grab'
       }
+
       if (e.code === 'Escape') {
         if (placementMode) setPlacementMode(false)
         if (wirePlacement) setWirePlacement(null)
         if (drawingMode) setDrawingMode(false)
+        if (textEditState) setTextEditState(null)
       }
     }
 
@@ -394,7 +431,7 @@ export default function LabLayout() {
       window.removeEventListener('keyup', handleKeyUp)
       document.body.style.cursor = 'default'
     }
-  }, [placementMode, wirePlacement, drawingMode, getCursor])
+  }, [placementMode, wirePlacement, drawingMode, textEditState, getCursor])
 
   // ===== Pan =====
   useEffect(() => {
@@ -477,7 +514,7 @@ export default function LabLayout() {
     updateTransform()
   }
 
-  // ===== Handlers LayersPanel =====
+  // ===== LayersPanel handlers =====
   const handleLayerDeleteFromPanel = (layerId: string) => {
     handleDelete(layerId)
     deleteImage(layerId)
@@ -490,12 +527,20 @@ export default function LabLayout() {
     handleWireframeTextUpdate(layerId, newName)
   }
 
-  // ⬇️ AJOUT : placement wireframe simple
+  // ===== Icon handlers =====
+  const handleIconSelect = (iconName: string) => {
+    if (drawingMode) setDrawingMode(false)
+    if (placementMode) setPlacementMode(false)
+    if (textEditState) setTextEditState(null)
+    setWirePlacement({ type: 'icon', iconName })
+    setActiveBottomTool('icon')
+  }
+
+  // Placement wireframe simple
   const handleWorldClick = (e: React.MouseEvent) => {
     if (!wirePlacement) return
     const { x, y } = screenToWorld(e.clientX, e.clientY)
 
-    // dimensions selon le type
     const getDimensions = (type: BottomToolId, variant?: string) => {
       switch (type) {
         case 'desktop': return { w: 1440, h: 900, text: 'Desktop Frame' }
@@ -503,8 +548,15 @@ export default function LabLayout() {
         case 'button': return { w: 120, h: 40, text: 'Button', variant }
         case 'input': return { w: 200, h: 40, text: 'Input Field' }
         case 'card': return { w: 300, h: 200, text: 'Card' }
+        case 'nav': return {
+          w: variant === 'vertical' ? 200 : (variant === 'breadcrumb' ? 400 : 800),
+          h: variant === 'vertical' ? 300 : (variant === 'tabs' ? 50 : 60),
+          text: `Navigation ${variant || 'horizontal'}`,
+          variant
+        }
+        case 'icon': return { w: 48, h: 48, text: 'Icon' }
         case 'diamond': return { w: 200, h: 200 }
-        case 'line': 
+        case 'line':
         case 'arrow': return { w: 240, h: 2 }
         case 'text': return { w: 200, h: 40, text: 'Text' }
         case 'image': return { w: 240, h: 160 }
@@ -515,49 +567,52 @@ export default function LabLayout() {
     const dims = getDimensions(wirePlacement.type, wirePlacement.variant)
     const id = crypto.randomUUID()
 
-    setWireEls(prev => [
-      ...prev,
-      { 
-        id, 
-        type: wirePlacement.type, 
-        x: Math.max(0, Math.min(x, CANVAS_CONFIG.width - dims.w)), 
-        y: Math.max(0, Math.min(y, CANVAS_CONFIG.height - dims.h)), 
-        w: dims.w, 
-        h: dims.h, 
-        z: Date.now(),
-        text: dims.text,
-        variant: dims.variant
-      }
-    ])
+    setWireEls(prev => [...prev, {
+      id,
+      type: wirePlacement.type,
+      x: Math.max(0, Math.min(x, CANVAS_CONFIG.width - dims.w)),
+      y: Math.max(0, Math.min(y, CANVAS_CONFIG.height - dims.h)),
+      w: dims.w,
+      h: dims.h,
+      z: Date.now(),
+      text: dims.text,
+      variant: dims.variant,
+      iconName: wirePlacement.iconName
+    }])
     setWirePlacement(null)
     setActiveBottomTool('select')
   }
 
+  // Fermer TextToolbar au clic extérieur (hors élément + hors toolbar)
+  useEffect(() => {
+    const onDown = (e: MouseEvent) => {
+      if (!textEditState) return
+      const t = e.target as HTMLElement
+      const insideEdited = t.closest(`[data-wire-id="${textEditState.id}"]`)
+      const insideToolbar = t.closest('.text-toolbar') || t.closest('[data-text-toolbar]')
+      if (!insideEdited && !insideToolbar) setTextEditState(null)
+    }
+    document.addEventListener('mousedown', onDown, true)
+    return () => document.removeEventListener('mousedown', onDown, true)
+  }, [textEditState])
+
   return (
-    <div
-      className={`fixed inset-0 flex flex-col overflow-hidden ${getCursor() === 'crosshair' ? 'cursor-crosshair' : ''}`}
-    >
+    <div className={`fixed inset-0 flex flex-col overflow-hidden ${getCursor() === 'crosshair' ? 'cursor-crosshair' : ''}`}>
       {/* LayersPanel */}
       <LayersPanel
         notes={notes}
         images={images}
         wireframes={wireEls}
-        onLayerSelect={(layerId, multiSelect) => {
-          console.log('Layer selected:', layerId, multiSelect)
-        }}
-        onLayerVisibilityToggle={(layerId, visible) => {
-          console.log('Toggle visibility:', layerId, visible)
-        }}
-        onLayerLockToggle={(layerId, locked) => {
-          console.log('Toggle lock:', layerId, locked)
-        }}
+        onLayerSelect={(layerId, multiSelect) => { console.log('Layer selected:', layerId, multiSelect) }}
+        onLayerVisibilityToggle={(layerId, visible) => { console.log('Toggle visibility:', layerId, visible) }}
+        onLayerLockToggle={(layerId, locked) => { console.log('Toggle lock:', layerId, locked) }}
         onLayerDelete={handleLayerDeleteFromPanel}
         onLayerRename={handleLayerRenameFromPanel}
         isOpen={layersPanelOpen}
         onToggle={() => setLayersPanelOpen(!layersPanelOpen)}
       />
 
-      {/* Header */}
+      {/* Header + TextToolbar */}
       <HeaderBar
         user={user}
         currentScale={currentScale}
@@ -580,6 +635,9 @@ export default function LabLayout() {
         onClearDrawing={handleClearDrawing}
         onUndoDrawing={handleUndoDrawing}
         onToggleDrawingTools={() => setShowDrawingTools(prev => !prev)}
+        selectedText={textEditState}
+        onApplyTextStyle={handleApplyTextStyle}
+        onFinishTextEdit={handleFinishTextEdit}
       />
 
       {/* Workspace */}
@@ -597,11 +655,7 @@ export default function LabLayout() {
           tool={activeTool}
           color={activeColor}
           width={activeWidth}
-          transform={{
-            x: translateRef.current.x,
-            y: translateRef.current.y,
-            scale: scaleRef.current
-          }}
+          transform={{ x: translateRef.current.x, y: translateRef.current.y, scale: scaleRef.current }}
           worldSize={{ width: CANVAS_CONFIG.width, height: CANVAS_CONFIG.height }}
         />
 
@@ -641,39 +695,36 @@ export default function LabLayout() {
           )}
 
           {/* Images */}
-          {images
-            .slice()
-            .sort((a, b) => (a.z ?? 0) - (b.z ?? 0))
-            .map(img => (
-              <ImageItem
-                key={img.id}
-                img={img}
-                scale={currentScale}
-                onChange={patch => updateImage(img.id, patch)}
-                onDelete={() => deleteImage(img.id)}
-                onFocus={() => bringImageToFront(img.id)}
-              />
-            ))}
-
-          {/* Post-its */}
-          {notes.map(note => (
-            <PostItNote
-              key={note.id}
-              note={note}
+          {images.slice().sort((a, b) => (a.z ?? 0) - (b.z ?? 0)).map(img => (
+            <ImageItem
+              key={img.id}
+              img={img}
               scale={currentScale}
-              onDrag={handleDrag}
-              onUpdateText={handleTextUpdate}
-              onDelete={handleDelete}
+              onChange={patch => updateImage(img.id, patch)}
+              onDelete={() => deleteImage(img.id)}
+              onFocus={() => bringImageToFront(img.id)}
             />
           ))}
 
-          {/* Wireframes avec composant interactif */}
-          {wireEls
-            .slice()
-            .sort((a, b) => a.z - b.z)
-            .map(w => (
+          {/* Post-its */}
+          {notes.map(note => (
+            <div key={note.id} data-wire-id={note.id}>
+              <PostItNote
+                note={note}
+                scale={currentScale}
+                onDrag={handleDrag}
+                onUpdateText={handleTextUpdate}
+                onDelete={handleDelete}
+                // 🔗 ouverture de la TextToolbar pour les Post-its
+                onStartTextEdit={(id, _type, styles) => handleStartTextEdit(id, 'note', styles || {})}
+              />
+            </div>
+          ))}
+
+          {/* Wireframes */}
+          {wireEls.slice().sort((a, b) => a.z - b.z).map(w => (
+            <div key={w.id} data-wire-id={w.id}>
               <WireframeElement
-                key={w.id}
                 wireframe={w}
                 scale={currentScale}
                 onDrag={handleWireframeDrag}
@@ -681,8 +732,10 @@ export default function LabLayout() {
                 onTextUpdate={handleWireframeTextUpdate}
                 onDelete={handleWireframeDelete}
                 onFocus={handleWireframeFocus}
+                onStartTextEdit={handleStartTextEdit}
               />
-            ))}
+            </div>
+          ))}
 
           {/* Tables */}
           <TableManager
@@ -701,6 +754,7 @@ export default function LabLayout() {
         <div>• <kbd className="px-1 bg-gray-600 rounded">Espace + Clic + Glisser</kbd> : Déplacer la vue</div>
         <div>• <kbd className="px-1 bg-gray-600 rounded">Molette</kbd> : Zoomer/Dézoomer</div>
         <div>• Glisser une image pour l'ajouter</div>
+        <div>• <kbd className="px-1 bg-gray-600 rounded">Double-clic</kbd> : Éditer le texte</div>
         {(placementMode || wirePlacement) && (
           <div className="mt-2 text-yellow-300">
             <div>• <kbd className="px-1 bg-gray-600 rounded">Clic</kbd> : Placer l'élément</div>
@@ -713,23 +767,37 @@ export default function LabLayout() {
             <div>• <kbd className="px-1 bg-gray-600 rounded">Escape</kbd> : Quitter le mode dessin</div>
           </div>
         )}
+        {textEditState && (
+          <div className="mt-2 text-blue-300">
+            <div>• Mode édition de texte actif</div>
+            <div>• <kbd className="px-1 bg-gray-600 rounded">Escape</kbd> : Annuler l'édition</div>
+            <div>• Utilisez la barre d'outils en haut</div>
+          </div>
+        )}
       </div>
 
-      {/* ⬇️ CORRECTION : Bottom Toolbar avec gestion correcte */}
+      {/* Bottom Toolbar */}
       <BottomToolbar
         active={activeBottomTool}
         onPick={(tool, variant) => {
           setActiveBottomTool(tool)
-          
+
           if (tool === 'select') {
             setWirePlacement(null)
+            if (textEditState) setTextEditState(null)
             return
           }
-          
-          // Outils de placement wireframe
-          if (['desktop', 'mobile', 'diamond', 'arrow', 'line', 'text', 'image', 'button', 'input', 'card'].includes(tool)) {
+
+          if (tool === 'icon') {
+            setShowIconPicker(true)
+            if (textEditState) setTextEditState(null)
+            return
+          }
+
+          if (['desktop','mobile','diamond','arrow','line','text','image','button','input','card','nav'].includes(tool)) {
             if (drawingMode) setDrawingMode(false)
             if (placementMode) setPlacementMode(false)
+            if (textEditState) setTextEditState(null)
             setWirePlacement({ type: tool, variant })
           }
         }}
@@ -739,6 +807,13 @@ export default function LabLayout() {
       <div className="todo-panel">
         <TodoPanel open={showTodo} onClose={() => setShowTodo(false)} />
       </div>
+
+      {/* IconPicker */}
+      <IconPicker
+        isOpen={showIconPicker}
+        onClose={() => setShowIconPicker(false)}
+        onSelectIcon={handleIconSelect}
+      />
     </div>
   )
 }

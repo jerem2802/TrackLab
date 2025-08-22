@@ -40,71 +40,103 @@ export default function LayersPanel({
   })
   const [searchTerm, setSearchTerm] = useState('')
 
-  // 🔹 Synchroniser les layers avec les éléments du canvas
+  // 🔹 Synchroniser les layers avec les éléments du canvas (sans boucle infinie)
   useEffect(() => {
-    const newLayers: Record<string, LayerElement> = {}
+    setLayersState(prev => {
+      const newLayers: Record<string, LayerElement> = {}
 
-    // Notes
-    notes.forEach(note => {
-      newLayers[note.id] = {
-        id: note.id,
-        name: note.text || 'Note vide',
-        type: 'note',
-        visible: true,
-        locked: false,
-        selected: layersState.selectedLayers.includes(note.id),
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-        data: {
-          color: note.color,
-          text: note.text
+      // Notes
+      notes.forEach(note => {
+        newLayers[note.id] = {
+          id: note.id,
+          name: note.text || 'Note vide',
+          type: 'note',
+          visible: prev.layers[note.id]?.visible ?? true,
+          locked:  prev.layers[note.id]?.locked  ?? false,
+          selected: prev.selectedLayers.includes(note.id),
+          createdAt: prev.layers[note.id]?.createdAt ?? Date.now(),
+          updatedAt: Date.now(),
+          data: {
+            color: note.color,
+            text: note.text
+          }
         }
+      })
+
+      // Images
+      images.forEach(image => {
+        newLayers[image.id] = {
+          id: image.id,
+          name: image.note || 'Image',
+          type: 'image',
+          visible: prev.layers[image.id]?.visible ?? true,
+          locked:  prev.layers[image.id]?.locked  ?? false,
+          selected: prev.selectedLayers.includes(image.id),
+          createdAt: prev.layers[image.id]?.createdAt ?? Date.now(),
+          updatedAt: Date.now(),
+          data: {
+            src: image.src,
+            width: image.width,
+            height: image.height
+          }
+        }
+      })
+
+      // Wireframes
+      wireframes.forEach(wireframe => {
+        newLayers[wireframe.id] = {
+          id: wireframe.id,
+          name: wireframe.text || wireframe.type,
+          type: 'wireframe',
+          visible: prev.layers[wireframe.id]?.visible ?? true,
+          locked:  prev.layers[wireframe.id]?.locked  ?? false,
+          selected: prev.selectedLayers.includes(wireframe.id),
+          createdAt: prev.layers[wireframe.id]?.createdAt ?? Date.now(),
+          updatedAt: Date.now(),
+          data: {
+            wireframeType: wireframe.type,
+            variant: wireframe.variant
+          }
+        }
+      })
+
+      // Nettoyer la sélection (conserver l’ordre)
+      const filteredSelected = prev.selectedLayers.filter(id => id in newLayers)
+
+      // Garde-fous : ne rien set si rien n’a réellement changé (shallow)
+      const sameKeys =
+        Object.keys(prev.layers).length === Object.keys(newLayers).length &&
+        Object.keys(prev.layers).every(k => newLayers[k])
+
+      const layersShallowEqual = sameKeys && Object.keys(newLayers).every(id => {
+        const a = prev.layers[id]
+        const b = newLayers[id]
+        if (!a) return false
+        return (
+          a.name === b.name &&
+          a.type === b.type &&
+          a.visible === b.visible &&
+          a.locked === b.locked &&
+          a.selected === b.selected &&
+          JSON.stringify(a.data) === JSON.stringify(b.data)
+        )
+      })
+
+      const selectionEqual =
+        filteredSelected.length === prev.selectedLayers.length &&
+        filteredSelected.every((id, i) => id === prev.selectedLayers[i])
+
+      if (layersShallowEqual && selectionEqual) {
+        return prev // ✅ pas de changement → pas de re-render → pas de boucle
+      }
+
+      return {
+        ...prev,
+        layers: newLayers,
+        selectedLayers: filteredSelected
       }
     })
-
-    // Images
-    images.forEach(image => {
-      newLayers[image.id] = {
-        id: image.id,
-        name: image.note || 'Image',
-        type: 'image',
-        visible: true,
-        locked: false,
-        selected: layersState.selectedLayers.includes(image.id),
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-        data: {
-          src: image.src,
-          width: image.width,
-          height: image.height
-        }
-      }
-    })
-
-    // Wireframes - MÊME PATTERN QUE LES IMAGES
-    wireframes.forEach(wireframe => {
-      newLayers[wireframe.id] = {
-        id: wireframe.id,
-        name: wireframe.text || wireframe.type,
-        type: 'wireframe',
-        visible: true,
-        locked: false,
-        selected: layersState.selectedLayers.includes(wireframe.id),
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-        data: {
-          wireframeType: wireframe.type,
-          variant: wireframe.variant
-        }
-      }
-    })
-
-    // ⚡ Remplacer complètement → supprime aussi les orphelins
-    setLayersState(prev => ({
-      ...prev,
-      layers: newLayers,
-      selectedLayers: prev.selectedLayers.filter(id => newLayers[id])
-    }))
+    // ⛔ IMPORTANT: ne pas dépendre de selectedLayers pour éviter la boucle
   }, [notes, images, wireframes])
 
   // Recherche

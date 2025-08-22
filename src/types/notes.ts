@@ -1,19 +1,25 @@
+import type { CSSProperties } from 'react'
+
 export interface StickyNote {
   id: string
-  text: string
   x: number
   y: number
   color: string
-  visible?: boolean  
-  locked?: boolean   
+  text: string
+  z: number
+  
+  textStyles?: Partial<
+    Pick<
+      CSSProperties,
+      | 'fontFamily'
+      | 'fontSize'
+      | 'fontWeight'
+      | 'fontStyle'
+      | 'textDecoration'
+      | 'textAlign'
+      | 'color'
+      | 'letterSpacing'
+      | 'lineHeight'
+    >
+  >
 }
-export type DroppedImage = {
-  id: string;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  src: string;     // DataURL
-  z?: number;
-  createdAt: number;
-};

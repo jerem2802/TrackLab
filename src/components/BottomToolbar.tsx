@@ -1,14 +1,15 @@
 import { useMemo, useState } from "react"
 import {
   MousePointer2, Diamond, ArrowRight,
-  Minus, Type, Image as ImageIcon, Monitor, Smartphone,
-  Square, Circle, RectangleHorizontal, ChevronUp
+  Minus, Type, Image, Monitor, Smartphone,
+  Square, RectangleHorizontal, ChevronUp, Menu,
+  Table2, Star
 } from "lucide-react"
 
 type ToolId =
   | "select"
   | "desktop" | "mobile" | "diamond" | "arrow" | "line"
-  | "text" | "image" | "button" | "input" | "card"
+  | "text" | "image" | "button" | "input" | "card" | "nav" | "icon"
 
 export default function BottomToolbar({
   active,
@@ -18,6 +19,7 @@ export default function BottomToolbar({
   onPick: (tool: ToolId, variant?: string) => void
 }) {
   const [showButtonMenu, setShowButtonMenu] = useState(false)
+  const [showNavMenu, setShowNavMenu] = useState(false)
 
   const groups = useMemo(
     () => [
@@ -29,9 +31,10 @@ export default function BottomToolbar({
         { id: "mobile", icon: Smartphone, label: "Mobile Frame (375x667)" },
       ],
       [
+        { id: "nav", icon: Menu, label: "Navigation", hasMenu: true },
         { id: "button", icon: RectangleHorizontal, label: "Button", hasMenu: true },
         { id: "input", icon: Square, label: "Input Field" },
-        { id: "card", icon: Circle, label: "Card Container" },
+        { id: "card", icon: Table2, label: "Card Container" },
       ],
       [
         { id: "diamond", icon: Diamond, label: "Diamond" },
@@ -40,24 +43,31 @@ export default function BottomToolbar({
       ],
       [
         { id: "text", icon: Type, label: "Text" },
-        { id: "image", icon: ImageIcon, label: "Image" },
+        { id: "image", icon: Image, label: "Image" },
+        { id: "icon", icon: Star, label: "Icon" },
       ],
     ],
     []
   )
 
-  const handleButtonClick = (id: string, hasMenu?: boolean) => {
+  const handleToolClick = (id: string, hasMenu?: boolean) => {
     if (id === "button" && hasMenu) {
       setShowButtonMenu(!showButtonMenu)
+      setShowNavMenu(false)
+    } else if (id === "nav" && hasMenu) {
+      setShowNavMenu(!showNavMenu)
+      setShowButtonMenu(false)
     } else {
       onPick(id as ToolId)
       setShowButtonMenu(false)
+      setShowNavMenu(false)
     }
   }
 
-  const handleButtonVariant = (variant: string) => {
-    onPick("button", variant)
+  const handleVariant = (tool: ToolId, variant: string) => {
+    onPick(tool, variant)
     setShowButtonMenu(false)
+    setShowNavMenu(false)
   }
 
   return (
@@ -70,7 +80,7 @@ export default function BottomToolbar({
               return (
                 <div key={id} className="relative">
                   <button
-                    onClick={() => handleButtonClick(id, hasMenu)}
+                    onClick={() => handleToolClick(id, hasMenu)}
                     title={label}
                     className={`mx-0.5 h-9 w-9 grid place-items-center rounded-lg text-gray-700 hover:bg-gray-100 relative
                       ${isActive ? "bg-violet-200" : ""}`}
@@ -81,38 +91,68 @@ export default function BottomToolbar({
                     )}
                   </button>
                   
-                  {/* Menu déroulant pour les boutons */}
+                  {/* Menu NAV */}
+                  {id === "nav" && showNavMenu && (
+                    <div className="absolute z-50 mb-2 bg-white border rounded-lg shadow-lg bottom-full min-w-32">
+                      <button 
+                        onClick={() => handleVariant('nav', 'horizontal')}
+                        className="block w-full px-3 py-2 text-sm text-left rounded-t-lg hover:bg-gray-100"
+                      >
+                        Horizontal
+                      </button>
+                      <button 
+                        onClick={() => handleVariant('nav', 'vertical')}
+                        className="block w-full px-3 py-2 text-sm text-left hover:bg-gray-100"
+                      >
+                        Vertical
+                      </button>
+                      <button 
+                        onClick={() => handleVariant('nav', 'tabs')}
+                        className="block w-full px-3 py-2 text-sm text-left hover:bg-gray-100"
+                      >
+                        Tabs
+                      </button>
+                      <button 
+                        onClick={() => handleVariant('nav', 'breadcrumb')}
+                        className="block w-full px-3 py-2 text-sm text-left rounded-b-lg hover:bg-gray-100"
+                      >
+                        Breadcrumb
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Menu BUTTON */}
                   {id === "button" && showButtonMenu && (
                     <div className="absolute z-50 mb-2 bg-white border rounded-lg shadow-lg bottom-full min-w-32">
                       <button 
-                        onClick={() => handleButtonVariant('primary')}
+                        onClick={() => handleVariant('button', 'primary')}
                         className="block w-full px-3 py-2 text-sm text-left text-white bg-blue-500 rounded-t-lg hover:bg-gray-100"
                       >
-                        Primary
+                        Button
                       </button>
                       <button 
-                        onClick={() => handleButtonVariant('secondary')}
+                        onClick={() => handleVariant('button', 'secondary')}
                         className="block w-full px-3 py-2 text-sm text-left text-blue-500 border-2 border-blue-500 hover:bg-gray-100"
                       >
-                        Secondary
+                        Button
                       </button>
                       <button 
-                        onClick={() => handleButtonVariant('outline')}
+                        onClick={() => handleVariant('button', 'outline')}
                         className="block w-full px-3 py-2 text-sm text-left text-gray-400 border-2 border-gray-400 hover:bg-gray-100"
                       >
-                        Outline
+                        Button
                       </button>
                       <button 
-                        onClick={() => handleButtonVariant('danger')}
+                        onClick={() => handleVariant('button', 'danger')}
                         className="block w-full px-3 py-2 text-sm text-left text-white bg-red-500 hover:bg-gray-100"
                       >
-                        Danger
+                        Button
                       </button>
                       <button 
-                        onClick={() => handleButtonVariant('success')}
+                        onClick={() => handleVariant('button', 'success')}
                         className="block w-full px-3 py-2 text-sm text-left text-white bg-green-500 rounded-b-lg hover:bg-gray-100"
                       >
-                        Success
+                        Button
                       </button>
                     </div>
                   )}

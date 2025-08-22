@@ -97,7 +97,8 @@ export default function LayerItem({ layer, isSelected, operations, indentLevel =
             onChange={(e) => setEditName(e.target.value)}
             onBlur={handleNameSubmit}
             onKeyDown={handleKeyDown}
-            className="w-full px-1 py-0 text-sm bg-white border border-blue-500 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+            className="... border border-tracklab rounded focus:outline-none focus:ring-1 focus:ring-tracklab"
+
             onClick={(e) => e.stopPropagation()}
           />
         ) : (

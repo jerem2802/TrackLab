@@ -1,18 +1,18 @@
-import { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react'
-import { useAuth } from '../context/AuthContext'
-import PostItNote from './PostItNote'
-import PostItManager from './PostItManager'
-import ImageItem from './ImageItems'
-import { StickyNote } from '../types/notes'
-import LayersPanel from './LayersPanel'
-import TableManager from './TableManager'
-import TodoPanel from './TodoPanel'
-import HeaderBar, { Tool } from './HeaderBar'
-import DrawingLayer, { DrawingLayerRef } from './DrawingLayer'
-import BottomToolbar from './BottomToolbar'
-import WireframeElement from './WireframeElement'
-import IconPicker from './IconPicker'
-import { TextStyles } from './TextToolbar'
+import { useState, useRef, useEffect, useLayoutEffect, useCallback } from "react"
+import { useAuth } from "../context/AuthContext"
+import PostItNote from "./PostItNote"
+import PostItManager from "./PostItManager"
+import ImageItem from "./ImageItems"
+import { StickyNote } from "../types/notes"
+import LayersPanel from "./LayersPanel"
+import TableManager from "./TableManager"
+import TodoPanel from "./TodoPanel"
+import HeaderBar, { Tool } from "./HeaderBar"
+import DrawingLayer, { DrawingLayerRef } from "./DrawingLayer"
+import BottomToolbar from "./BottomToolbar"
+import WireframeElement, { type WireEl } from "./WireframeElement"
+import IconPicker from "./IconPicker"
+import { TextStyles } from "./TextToolbar"
 
 type DroppedImage = {
   id: string
@@ -27,27 +27,12 @@ type DroppedImage = {
 }
 
 type BottomToolId =
-  | 'select' | 'desktop' | 'mobile' | 'diamond' | 'arrow' | 'line'
-  | 'text' | 'image' | 'button' | 'input' | 'card' | 'nav' | 'icon'
+  | "select" | "desktop" | "mobile" | "diamond" | "arrow" | "line"
+  | "text" | "image" | "button" | "input" | "nav" | "icon"
 
 type TextStyle = Partial<Pick<React.CSSProperties,
-  'fontWeight' | 'fontStyle' | 'fontSize' | 'color' | 'textAlign' |
-  'textDecoration' | 'letterSpacing' | 'lineHeight' | 'fontFamily'>>
-
-type WireEl = {
-  id: string
-  type: BottomToolId
-  x: number
-  y: number
-  w: number
-  h: number
-  z: number
-  text?: string
-  variant?: string
-  iconName?: string
-  parentId?: string
-  textStyles?: TextStyle
-}
+  "fontWeight" | "fontStyle" | "fontSize" | "color" | "textAlign" |
+  "textDecoration" | "letterSpacing" | "lineHeight" | "fontFamily">>
 
 const CANVAS_CONFIG = {
   width: 20000,
@@ -62,13 +47,13 @@ export default function LabLayout() {
   // UI state
   const [notes, setNotes] = useState<StickyNote[]>([])
   const [images, setImages] = useState<DroppedImage[]>([])
-  const [selectedColor, setSelectedColor] = useState('#ffeb3b')
+  const [selectedColor, setSelectedColor] = useState("#ffeb3b")
   const [currentScale, setCurrentScale] = useState(1)
   const [layersPanelOpen, setLayersPanelOpen] = useState(false)
   const [placementMode, setPlacementMode] = useState(false)
   const [showTodo, setShowTodo] = useState(false)
 
-  const [activeBottomTool, setActiveBottomTool] = useState<BottomToolId>('select')
+  const [activeBottomTool, setActiveBottomTool] = useState<BottomToolId>("select")
   const [wirePlacement, setWirePlacement] = useState<{type: BottomToolId, variant?: string, iconName?: string} | null>(null)
   const [wireEls, setWireEls] = useState<WireEl[]>([])
   const [showIconPicker, setShowIconPicker] = useState(false)
@@ -82,8 +67,8 @@ export default function LabLayout() {
 
   // Drawing state
   const [drawingMode, setDrawingMode] = useState(false)
-  const [activeTool, setActiveTool] = useState<Tool>('pencil')
-  const [activeColor, setActiveColor] = useState('#000000')
+  const [activeTool, setActiveTool] = useState<Tool>("pencil")
+  const [activeColor, setActiveColor] = useState("#000000")
   const [activeWidth, setActiveWidth] = useState(3)
   const [showDrawingTools, setShowDrawingTools] = useState(false)
 
@@ -108,15 +93,15 @@ export default function LabLayout() {
 
   // ---- text style conversions ----
   const wireframeStylesToTextStyles = (wireframeStyles?: TextStyle): TextStyles => ({
-    fontFamily: (wireframeStyles?.fontFamily as string) || 'Roboto',
-    fontSize: typeof wireframeStyles?.fontSize === 'string'
+    fontFamily: (wireframeStyles?.fontFamily as string) || "Roboto",
+    fontSize: typeof wireframeStyles?.fontSize === "string"
       ? parseFloat(wireframeStyles.fontSize) || 14
       : wireframeStyles?.fontSize || 14,
-    fontWeight: (wireframeStyles?.fontWeight as 'normal' | 'bold') || 'normal',
-    fontStyle: (wireframeStyles?.fontStyle as 'normal' | 'italic') || 'normal',
-    textDecoration: (wireframeStyles?.textDecoration as 'none' | 'underline') || 'none',
-    textAlign: (wireframeStyles?.textAlign as 'left' | 'center' | 'right') || 'left',
-    color: wireframeStyles?.color || '#000000'
+    fontWeight: (wireframeStyles?.fontWeight as "normal" | "bold") || "normal",
+    fontStyle: (wireframeStyles?.fontStyle as "normal" | "italic") || "normal",
+    textDecoration: (wireframeStyles?.textDecoration as "none" | "underline") || "none",
+    textAlign: (wireframeStyles?.textAlign as "left" | "center" | "right") || "left",
+    color: wireframeStyles?.color || "#000000"
   })
 
   const textStylesToWireframeStyles = (s: TextStyles): TextStyle => ({
@@ -141,8 +126,7 @@ export default function LabLayout() {
 
     const css = textStylesToWireframeStyles(updated)
 
-    // appliquer soit au Post-it, soit au wireframe
-    if (textEditState.type === 'note') {
+    if (textEditState.type === "note") {
       setNotes(prev => prev.map(n => n.id === textEditState.id ? { ...n, textStyles: css } : n))
     } else {
       setWireEls(prev => prev.map(w => w.id === textEditState.id ? { ...w, textStyles: css } : w))
@@ -165,7 +149,7 @@ export default function LabLayout() {
   const centerTranslate = useCallback((scale: number) => {
     const r = getWorkspaceRect()
     const w = r?.width ?? window.innerWidth
-   const h = r?.height ?? window.innerHeight
+    const h = r?.height ?? window.innerHeight
     const worldWidth = CANVAS_CONFIG.width * scale
     const worldHeight = CANVAS_CONFIG.height * scale
     return { x: (w - worldWidth) / 2, y: (h - worldHeight) / 2 }
@@ -218,11 +202,11 @@ export default function LabLayout() {
 
     const ro = new ResizeObserver(recalc)
     ro.observe(el)
-    window.addEventListener('resize', recalc)
+    window.addEventListener("resize", recalc)
     recalc()
     return () => {
       ro.disconnect()
-      window.removeEventListener('resize', recalc)
+      window.removeEventListener("resize", recalc)
     }
   }, [applyTransform, centerTranslate, computeMinZoom])
 
@@ -321,7 +305,7 @@ export default function LabLayout() {
     })
 
   const addImageFromFile = async (file: File, clientX: number, clientY: number) => {
-    if (!file.type.startsWith('image/')) return
+    if (!file.type.startsWith("image/")) return
     const src = await fileToDataURL(file)
     const { x, y } = screenToWorld(clientX, clientY)
     const W = 220, H = 160
@@ -376,14 +360,14 @@ export default function LabLayout() {
       updateTransform()
     }
 
-    window.addEventListener('wheel', handleWheel, { passive: false })
-    return () => window.removeEventListener('wheel', handleWheel)
+    window.addEventListener("wheel", handleWheel, { passive: false })
+    return () => window.removeEventListener("wheel", handleWheel)
   }, [updateTransform, constrainTranslate])
 
   const getCursor = useCallback(() => {
-    if (placementMode || wirePlacement) return 'crosshair'
-    if (drawingMode) return activeTool === 'eraser' ? 'grab' : 'crosshair'
-    return 'default'
+    if (placementMode || wirePlacement) return "crosshair"
+    if (drawingMode) return activeTool === "eraser" ? "grab" : "crosshair"
+    return "default"
   }, [placementMode, wirePlacement, drawingMode, activeTool])
 
   // ===== Clavier =====
@@ -393,23 +377,23 @@ export default function LabLayout() {
       const tag = el.tagName.toLowerCase()
       return (
         el.isContentEditable ||
-        tag === 'input' ||
-        tag === 'textarea' ||
-        tag === 'select' ||
-        !!el.closest('.text-toolbar')
+        tag === "input" ||
+        tag === "textarea" ||
+        tag === "select" ||
+        !!el.closest(".text-toolbar")
       )
     }
 
     const handleKeyDown = (e: KeyboardEvent) => {
       const typing = isTypingTarget(e.target)
 
-      if (e.code === 'Space' && !spacePressedRef.current && !typing) {
+      if (e.code === "Space" && !spacePressedRef.current && !typing) {
         e.preventDefault()
         spacePressedRef.current = true
-        document.body.style.cursor = 'grab'
+        document.body.style.cursor = "grab"
       }
 
-      if (e.code === 'Escape') {
+      if (e.code === "Escape") {
         if (placementMode) setPlacementMode(false)
         if (wirePlacement) setWirePlacement(null)
         if (drawingMode) setDrawingMode(false)
@@ -418,18 +402,18 @@ export default function LabLayout() {
     }
 
     const handleKeyUp = (e: KeyboardEvent) => {
-      if (e.code === 'Space') {
+      if (e.code === "Space") {
         spacePressedRef.current = false
         document.body.style.cursor = getCursor()
       }
     }
 
-    window.addEventListener('keydown', handleKeyDown)
-    window.addEventListener('keyup', handleKeyUp)
+    window.addEventListener("keydown", handleKeyDown)
+    window.addEventListener("keyup", handleKeyUp)
     return () => {
-      window.removeEventListener('keydown', handleKeyDown)
-      window.removeEventListener('keyup', handleKeyUp)
-      document.body.style.cursor = 'default'
+      window.removeEventListener("keydown", handleKeyDown)
+      window.removeEventListener("keyup", handleKeyUp)
+      document.body.style.cursor = "default"
     }
   }, [placementMode, wirePlacement, drawingMode, textEditState, getCursor])
 
@@ -446,7 +430,7 @@ export default function LabLayout() {
         startY: e.clientY,
         initialTranslate: { ...translateRef.current },
       }
-      document.body.style.cursor = 'grabbing'
+      document.body.style.cursor = "grabbing"
     }
 
     const handleMouseMove = (e: MouseEvent) => {
@@ -466,37 +450,37 @@ export default function LabLayout() {
     const handleMouseUp = () => {
       if (!dragStateRef.current.isDragging) return
       dragStateRef.current.isDragging = false
-      document.body.style.cursor = spacePressedRef.current ? 'grab' : getCursor()
+      document.body.style.cursor = spacePressedRef.current ? "grab" : getCursor()
     }
 
-    window.addEventListener('mousedown', handleMouseDown)
-    window.addEventListener('mousemove', handleMouseMove)
-    window.addEventListener('mouseup', handleMouseUp)
+    window.addEventListener("mousedown", handleMouseDown)
+    window.addEventListener("mousemove", handleMouseMove)
+    window.addEventListener("mouseup", handleMouseUp)
 
     return () => {
-      window.removeEventListener('mousedown', handleMouseDown)
-      window.removeEventListener('mousemove', handleMouseMove)
-      window.removeEventListener('mouseup', handleMouseUp)
+      window.removeEventListener("mousedown", handleMouseDown)
+      window.removeEventListener("mousemove", handleMouseMove)
+      window.removeEventListener("mouseup", handleMouseUp)
     }
   }, [updateTransform, constrainTranslate, getCursor])
 
   const isPanTarget = (target: EventTarget | null): boolean => {
     if (!(target instanceof HTMLElement)) return false
     return (
-      !target.closest('.note') &&
-      !target.closest('button') &&
-      !target.closest('.image-item') &&
-      !target.closest('.note-modal') &&
-      !target.closest('.table-item') &&
-      !target.closest('.todo-panel') &&
-      !target.closest('.layers-panel') &&
-      !target.closest('.wireframe-element')
+      !target.closest(".note") &&
+      !target.closest("button") &&
+      !target.closest(".image-item") &&
+      !target.closest(".note-modal") &&
+      !target.closest(".table-item") &&
+      !target.closest(".todo-panel") &&
+      !target.closest(".layers-panel") &&
+      !target.closest(".wireframe-element")
     )
   }
 
   // ===== DnD images =====
   const onDragOver = (e: React.DragEvent) => {
-    if ([...e.dataTransfer.items].some(i => i.kind === 'file')) e.preventDefault()
+    if ([...e.dataTransfer.items].some(i => i.kind === "file")) e.preventDefault()
   }
 
   const onDrop = async (e: React.DragEvent) => {
@@ -532,34 +516,33 @@ export default function LabLayout() {
     if (drawingMode) setDrawingMode(false)
     if (placementMode) setPlacementMode(false)
     if (textEditState) setTextEditState(null)
-    setWirePlacement({ type: 'icon', iconName })
-    setActiveBottomTool('icon')
+    setWirePlacement({ type: "icon", iconName })
+    setActiveBottomTool("icon")
   }
 
-  // Placement wireframe simple
+  // Placement wireframe
   const handleWorldClick = (e: React.MouseEvent) => {
     if (!wirePlacement) return
     const { x, y } = screenToWorld(e.clientX, e.clientY)
 
     const getDimensions = (type: BottomToolId, variant?: string) => {
       switch (type) {
-        case 'desktop': return { w: 1440, h: 900, text: 'Desktop Frame' }
-        case 'mobile': return { w: 375, h: 667, text: 'Mobile Frame' }
-        case 'button': return { w: 120, h: 40, text: 'Button', variant }
-        case 'input': return { w: 200, h: 40, text: 'Input Field' }
-        case 'card': return { w: 300, h: 200, text: 'Card' }
-        case 'nav': return {
-          w: variant === 'vertical' ? 200 : (variant === 'breadcrumb' ? 400 : 800),
-          h: variant === 'vertical' ? 300 : (variant === 'tabs' ? 50 : 60),
-          text: `Navigation ${variant || 'horizontal'}`,
+        case "desktop": return { w: 1440, h: 900, text: "Desktop Frame" }
+        case "mobile": return { w: 375, h: 667, text: "Mobile Frame" }
+        case "button": return { w: 120, h: 40, text: "Button", variant }
+        case "input": return { w: 200, h: 40, text: "Input Field" }
+        case "nav": return {
+          w: variant === "vertical" ? 200 : (variant === "breadcrumb" ? 400 : 800),
+          h: variant === "vertical" ? 300 : (variant === "tabs" ? 50 : 60),
+          text: `Navigation ${variant || "horizontal"}`,
           variant
         }
-        case 'icon': return { w: 48, h: 48, text: 'Icon' }
-        case 'diamond': return { w: 200, h: 200 }
-        case 'line':
-        case 'arrow': return { w: 240, h: 2 }
-        case 'text': return { w: 200, h: 40, text: 'Text' }
-        case 'image': return { w: 240, h: 160 }
+        case "icon": return { w: 48, h: 48, text: "Icon" }
+        case "diamond": return { w: 200, h: 200 }
+        case "line":
+        case "arrow": return { w: 240, h: 2 }
+        case "text": return { w: 200, h: 40, text: "Text" }
+        case "image": return { w: 240, h: 160 }
         default: return { w: 240, h: 160 }
       }
     }
@@ -576,36 +559,36 @@ export default function LabLayout() {
       h: dims.h,
       z: Date.now(),
       text: dims.text,
-      variant: dims.variant,
+      variant: (dims as any).variant,
       iconName: wirePlacement.iconName
     }])
     setWirePlacement(null)
-    setActiveBottomTool('select')
+    setActiveBottomTool("select")
   }
 
-  // Fermer TextToolbar au clic extérieur (hors élément + hors toolbar)
+  // Fermer TextToolbar si clic extérieur
   useEffect(() => {
     const onDown = (e: MouseEvent) => {
       if (!textEditState) return
       const t = e.target as HTMLElement
       const insideEdited = t.closest(`[data-wire-id="${textEditState.id}"]`)
-      const insideToolbar = t.closest('.text-toolbar') || t.closest('[data-text-toolbar]')
+      const insideToolbar = t.closest(".text-toolbar") || t.closest("[data-text-toolbar]")
       if (!insideEdited && !insideToolbar) setTextEditState(null)
     }
-    document.addEventListener('mousedown', onDown, true)
-    return () => document.removeEventListener('mousedown', onDown, true)
+    document.addEventListener("mousedown", onDown, true)
+    return () => document.removeEventListener("mousedown", onDown, true)
   }, [textEditState])
 
   return (
-    <div className={`fixed inset-0 flex flex-col overflow-hidden ${getCursor() === 'crosshair' ? 'cursor-crosshair' : ''}`}>
+    <div className={`fixed inset-0 flex flex-col overflow-hidden ${getCursor() === "crosshair" ? "cursor-crosshair" : ""}`}>
       {/* LayersPanel */}
       <LayersPanel
         notes={notes}
         images={images}
         wireframes={wireEls}
-        onLayerSelect={(layerId, multiSelect) => { console.log('Layer selected:', layerId, multiSelect) }}
-        onLayerVisibilityToggle={(layerId, visible) => { console.log('Toggle visibility:', layerId, visible) }}
-        onLayerLockToggle={(layerId, locked) => { console.log('Toggle lock:', layerId, locked) }}
+        onLayerSelect={(layerId, multiSelect) => { console.log("Layer selected:", layerId, multiSelect) }}
+        onLayerVisibilityToggle={(layerId, visible) => { console.log("Toggle visibility:", layerId, visible) }}
+        onLayerLockToggle={(layerId, locked) => { console.log("Toggle lock:", layerId, locked) }}
         onLayerDelete={handleLayerDeleteFromPanel}
         onLayerRename={handleLayerRenameFromPanel}
         isOpen={layersPanelOpen}
@@ -644,7 +627,7 @@ export default function LabLayout() {
       <div
         ref={workspaceRef}
         className="relative flex-1 overflow-hidden bg-transparent"
-        style={{ marginLeft: layersPanelOpen ? '320px' : '0px', transition: 'margin-left 0.3s ease' }}
+        style={{ marginLeft: layersPanelOpen ? "320px" : "0px", transition: "margin-left 0.3s ease" }}
         onDragOver={onDragOver}
         onDrop={onDrop}
       >
@@ -666,7 +649,7 @@ export default function LabLayout() {
           style={{
             width: CANVAS_CONFIG.width,
             height: CANVAS_CONFIG.height,
-            transformOrigin: 'top left',
+            transformOrigin: "top left",
             transform: `translate(${translateRef.current.x}px, ${translateRef.current.y}px) scale(${scaleRef.current})`,
           }}
           onClick={handleWorldClick}
@@ -679,7 +662,7 @@ export default function LabLayout() {
                 linear-gradient(to right, #ccc 1px, transparent 1px),
                 linear-gradient(to bottom, #ccc 1px, transparent 1px)
               `,
-              backgroundSize: '50px 50px',
+              backgroundSize: "50px 50px",
             }}
           />
 
@@ -715,8 +698,7 @@ export default function LabLayout() {
                 onDrag={handleDrag}
                 onUpdateText={handleTextUpdate}
                 onDelete={handleDelete}
-                // 🔗 ouverture de la TextToolbar pour les Post-its
-                onStartTextEdit={(id, _type, styles) => handleStartTextEdit(id, 'note', styles || {})}
+                onStartTextEdit={(id, _type, styles) => handleStartTextEdit(id, "note", styles || {})}
               />
             </div>
           ))}
@@ -761,19 +743,6 @@ export default function LabLayout() {
             <div>• <kbd className="px-1 bg-gray-600 rounded">Escape</kbd> : Annuler</div>
           </div>
         )}
-        {drawingMode && (
-          <div className="mt-2 text-green-300">
-            <div>• Mode dessin actif - {activeTool === 'eraser' ? 'Gomme' : 'Crayon'}</div>
-            <div>• <kbd className="px-1 bg-gray-600 rounded">Escape</kbd> : Quitter le mode dessin</div>
-          </div>
-        )}
-        {textEditState && (
-          <div className="mt-2 text-blue-300">
-            <div>• Mode édition de texte actif</div>
-            <div>• <kbd className="px-1 bg-gray-600 rounded">Escape</kbd> : Annuler l'édition</div>
-            <div>• Utilisez la barre d'outils en haut</div>
-          </div>
-        )}
       </div>
 
       {/* Bottom Toolbar */}
@@ -782,23 +751,23 @@ export default function LabLayout() {
         onPick={(tool, variant) => {
           setActiveBottomTool(tool)
 
-          if (tool === 'select') {
+          if (tool === "select") {
             setWirePlacement(null)
             if (textEditState) setTextEditState(null)
             return
           }
 
-          if (tool === 'icon') {
+          if (tool === "icon") {
             setShowIconPicker(true)
             if (textEditState) setTextEditState(null)
             return
           }
 
-          if (['desktop','mobile','diamond','arrow','line','text','image','button','input','card','nav'].includes(tool)) {
+          if (["desktop","mobile","diamond","arrow","line","text","image","button","input","nav"].includes(tool)) {
             if (drawingMode) setDrawingMode(false)
             if (placementMode) setPlacementMode(false)
             if (textEditState) setTextEditState(null)
-            setWirePlacement({ type: tool, variant })
+            setWirePlacement({ type: tool as BottomToolId, variant })
           }
         }}
       />

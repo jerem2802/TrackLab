@@ -1,9 +1,7 @@
-import { useState, useRef, useEffect, useLayoutEffect, useCallback } from "react"
+import React, { useState, useRef, useEffect, useLayoutEffect, useCallback } from "react"
 import { useAuth } from "../context/AuthContext"
 import PostItNote from "./PostItNote"
-import PostItManager from "./PostItManager"
 import ImageItem from "./ImageItems"
-import { StickyNote } from "../types/notes"
 import LayersPanel from "./LayersPanel"
 import TableManager from "./TableManager"
 import TodoPanel from "./TodoPanel"
@@ -13,22 +11,12 @@ import BottomToolbar from "./BottomToolbar"
 import WireframeElement, { type WireEl } from "./WireframeElement"
 import IconPicker from "./IconPicker"
 import { TextStyles } from "./TextToolbar"
-
-type DroppedImage = {
-  id: string
-  x: number
-  y: number
-  width: number
-  height: number
-  src: string
-  z?: number
-  createdAt: number
-  note?: string
-}
+import { useNotesStore } from "../store/useNotesStore"
+import { useImagesStore, type DroppedImage } from "../store/useImagesStore"
 
 type BottomToolId =
   | "select" | "desktop" | "mobile" | "diamond" | "arrow" | "line"
-  | "text" | "image" | "button" | "input" | "nav" | "icon"
+  | "text" | "image" | "button" | "input" | "nav" | "icon" | "card"
 
 type TextStyle = Partial<Pick<React.CSSProperties,
   "fontWeight" | "fontStyle" | "fontSize" | "color" | "textAlign" |
@@ -44,9 +32,22 @@ const CANVAS_CONFIG = {
 export default function LabLayout() {
   const { user } = useAuth()
 
-  // UI state
-  const [notes, setNotes] = useState<StickyNote[]>([])
-  const [images, setImages] = useState<DroppedImage[]>([])
+  // === NOTES (Zustand)
+  const notes            = useNotesStore(s => s.notes)
+  const addNote          = useNotesStore(s => s.addNote)
+  const updateNoteText   = useNotesStore(s => s.updateNoteText)
+  const deleteNote       = useNotesStore(s => s.deleteNote)
+  const nudgeNote        = useNotesStore(s => s.nudgeNote)
+  const updateNoteStyles = useNotesStore(s => s.updateNoteStyles)
+
+  // === IMAGES (Zustand)
+  const images      = useImagesStore(s => s.images)
+  const addImage    = useImagesStore(s => s.addImage)
+  const updateImage = useImagesStore(s => s.updateImage)
+  const deleteImage = useImagesStore(s => s.deleteImage)
+  const focusImage  = useImagesStore(s => s.focusImage)
+
+  // === UI local
   const [selectedColor, setSelectedColor] = useState("#ffeb3b")
   const [currentScale, setCurrentScale] = useState(1)
   const [layersPanelOpen, setLayersPanelOpen] = useState(false)
@@ -54,14 +55,14 @@ export default function LabLayout() {
   const [showTodo, setShowTodo] = useState(false)
 
   const [activeBottomTool, setActiveBottomTool] = useState<BottomToolId>("select")
-  const [wirePlacement, setWirePlacement] = useState<{type: BottomToolId, variant?: string, iconName?: string} | null>(null)
+  const [wirePlacement, setWirePlacement] = useState<{ type: BottomToolId, variant?: string, iconName?: string } | null>(null)
   const [wireEls, setWireEls] = useState<WireEl[]>([])
   const [showIconPicker, setShowIconPicker] = useState(false)
 
   // TextToolbar state
   const [textEditState, setTextEditState] = useState<{
     id: string
-    type: string   // 'note' | wireframe type
+    type: string
     styles: TextStyles
   } | null>(null)
 
@@ -125,9 +126,8 @@ export default function LabLayout() {
     setTextEditState(prev => (prev ? { ...prev, styles: updated } : null))
 
     const css = textStylesToWireframeStyles(updated)
-
     if (textEditState.type === "note") {
-      setNotes(prev => prev.map(n => n.id === textEditState.id ? { ...n, textStyles: css } : n))
+      updateNoteStyles(textEditState.id, css)
     } else {
       setWireEls(prev => prev.map(w => w.id === textEditState.id ? { ...w, textStyles: css } : w))
     }
@@ -240,47 +240,36 @@ export default function LabLayout() {
     setSelectedColor(color)
     setPlacementMode(true)
   }
-  const handleDrag = (id: string, dx: number, dy: number) => {
-    setNotes(prev => prev.map(note => {
-      if (note.id !== id) return note
-      const newX = Math.min(Math.max(note.x + dx, 0), CANVAS_CONFIG.width - 160)
-      const newY = Math.min(Math.max(note.y + dy, 0), CANVAS_CONFIG.height - 160)
-      return { ...note, x: newX, y: newY }
-    }))
-  }
-  const handleTextUpdate = (id: string, text: string) =>
-    setNotes(prev => prev.map(n => (n.id === id ? { ...n, text } : n)))
-  const handleDelete = (id: string) =>
-    setNotes(prev => prev.filter(n => n.id !== id))
 
-  // ===== Wireframe handlers =====
+  // drag post-it (delta écran déjà compensé par PostItNote)
+  const handleDrag = (id: string, dx: number, dy: number) => {
+    nudgeNote(id, dx, dy)
+  }
+
+  // ===== Wireframe handlers (restent locaux) =====
   const handleWireframeDrag = (id: string, dx: number, dy: number) => {
     setWireEls(prev => prev.map(wire => {
       if (wire.id !== id) return wire
-      const newX = Math.min(Math.max(wire.x + dx, 0), CANVAS_CONFIG.width - wire.w)
-      const newY = Math.min(Math.max(wire.y + dy, 0), CANVAS_CONFIG.height - wire.h)
+      const newX = Math.min(Math.max(wire.x + dx / currentScale, 0), CANVAS_CONFIG.width - wire.w)
+      const newY = Math.min(Math.max(wire.y + dy / currentScale, 0), CANVAS_CONFIG.height - wire.h)
       return { ...wire, x: newX, y: newY }
     }))
   }
-
   const handleWireframeResize = (id: string, newWidth: number, newHeight: number) => {
     setWireEls(prev => prev.map(wire => {
       if (wire.id !== id) return wire
       const constrainedW = Math.min(Math.max(newWidth, 50), CANVAS_CONFIG.width - wire.x)
-      const constrainedH = Math.min(Math.max(newHeight, 50), CANVAS_CONFIG.height - wire.h)
+      const constrainedH = Math.min(Math.max(newHeight, 50), CANVAS_CONFIG.height - wire.y)
       return { ...wire, w: constrainedW, h: constrainedH }
     }))
   }
-
   const handleWireframeTextUpdate = (id: string, text: string) => {
     setWireEls(prev => prev.map(w => (w.id === id ? { ...w, text } : w)))
   }
-
   const handleWireframeDelete = (id: string) => {
     setWireEls(prev => prev.filter(w => w.id !== id))
     if (textEditState?.id === id) setTextEditState(null)
   }
-
   const handleWireframeFocus = (id: string) => {
     setWireEls(prev => prev.map(w => (w.id === id ? { ...w, z: Date.now() } : w)))
   }
@@ -311,31 +300,11 @@ export default function LabLayout() {
     const W = 220, H = 160
     const constrainedX = Math.min(Math.max(x - W / 2, 0), CANVAS_CONFIG.width - W)
     const constrainedY = Math.min(Math.max(y - H / 2, 0), CANVAS_CONFIG.height - H)
-    setImages(prev => [...prev, {
-      id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
-      x: constrainedX, y: constrainedY, width: W, height: H, src,
-      createdAt: Date.now(), z: Date.now(),
-    }])
+
+    addImage({ x: constrainedX, y: constrainedY, width: W, height: H, src })
   }
 
-  const updateImage = (id: string, patch: Partial<DroppedImage>) => {
-    setImages(prev => prev.map(img => {
-      if (img.id !== id) return img
-      const updated = { ...img, ...patch }
-      if (patch.x !== undefined || patch.width !== undefined) {
-        updated.x = Math.min(Math.max(updated.x, 0), CANVAS_CONFIG.width - updated.width)
-      }
-      if (patch.y !== undefined || patch.height !== undefined) {
-        updated.y = Math.min(Math.max(updated.y, 0), CANVAS_CONFIG.height - updated.height)
-      }
-      return updated
-    }))
-  }
-
-  const deleteImage = (id: string) =>
-    setImages(prev => prev.filter(it => it.id !== id))
-  const bringImageToFront = (id: string) =>
-    updateImage(id, { z: Date.now() })
+  const bringImageToFront = (id: string) => focusImage(id)
 
   // ===== Zoom molette =====
   useEffect(() => {
@@ -417,7 +386,7 @@ export default function LabLayout() {
     }
   }, [placementMode, wirePlacement, drawingMode, textEditState, getCursor])
 
-  // ===== Pan =====
+  // ===== Pan (Space + drag)
   useEffect(() => {
     const handleMouseDown = (e: MouseEvent) => {
       if (!spacePressedRef.current || e.button !== 0) return
@@ -478,18 +447,17 @@ export default function LabLayout() {
     )
   }
 
-  // ===== DnD images =====
+  // ===== DnD images
   const onDragOver = (e: React.DragEvent) => {
     if ([...e.dataTransfer.items].some(i => i.kind === "file")) e.preventDefault()
   }
-
   const onDrop = async (e: React.DragEvent) => {
     e.preventDefault()
     const file = e.dataTransfer.files?.[0]
     if (file) await addImageFromFile(file, e.clientX, e.clientY)
   }
 
-  // ===== Reset vue =====
+  // ===== Reset vue
   const resetView = () => {
     minZoomRef.current = computeMinZoom()
     scaleRef.current = Math.max(CANVAS_CONFIG.defaultZoom, minZoomRef.current)
@@ -498,20 +466,19 @@ export default function LabLayout() {
     updateTransform()
   }
 
-  // ===== LayersPanel handlers =====
+  // ===== LayersPanel handlers
   const handleLayerDeleteFromPanel = (layerId: string) => {
-    handleDelete(layerId)
+    deleteNote(layerId)
     deleteImage(layerId)
     handleWireframeDelete(layerId)
   }
-
   const handleLayerRenameFromPanel = (layerId: string, newName: string) => {
-    setNotes(prev => prev.map(n => (n.id === layerId ? { ...n, text: newName } : n)))
-    setImages(prev => prev.map(img => (img.id === layerId ? { ...img, note: newName } : img)))
+    updateNoteText(layerId, newName)
+    updateImage(layerId, { note: newName })
     handleWireframeTextUpdate(layerId, newName)
   }
 
-  // ===== Icon handlers =====
+  // ===== Icon handlers
   const handleIconSelect = (iconName: string) => {
     if (drawingMode) setDrawingMode(false)
     if (placementMode) setPlacementMode(false)
@@ -521,29 +488,29 @@ export default function LabLayout() {
   }
 
   // Placement wireframe
+  type Dim = { w: number; h: number; text?: string; variant?: string }
   const handleWorldClick = (e: React.MouseEvent) => {
     if (!wirePlacement) return
     const { x, y } = screenToWorld(e.clientX, e.clientY)
 
-    const getDimensions = (type: BottomToolId, variant?: string) => {
+    const getDimensions = (type: BottomToolId, variant?: string): Dim => {
       switch (type) {
         case "desktop": return { w: 1440, h: 900, text: "Desktop Frame" }
-        case "mobile": return { w: 375, h: 667, text: "Mobile Frame" }
-        case "button": return { w: 120, h: 40, text: "Button", variant }
-        case "input": return { w: 200, h: 40, text: "Input Field" }
-        case "nav": return {
+        case "mobile": return { w: 375,  h: 667, text: "Mobile Frame" }
+        case "button": return { w: 120,  h: 40,  text: "Button", variant }
+        case "input":  return { w: 200,  h: 40,  text: "Input Field" }
+        case "nav":    return {
           w: variant === "vertical" ? 200 : (variant === "breadcrumb" ? 400 : 800),
           h: variant === "vertical" ? 300 : (variant === "tabs" ? 50 : 60),
-          text: `Navigation ${variant || "horizontal"}`,
-          variant
+          text: `Navigation ${variant || "horizontal"}`, variant
         }
-        case "icon": return { w: 48, h: 48, text: "Icon" }
-        case "diamond": return { w: 200, h: 200 }
+        case "icon":   return { w: 48,   h: 48,  text: "Icon" }
+        case "diamond":return { w: 200,  h: 200 }
         case "line":
-        case "arrow": return { w: 240, h: 2 }
-        case "text": return { w: 200, h: 40, text: "Text" }
-        case "image": return { w: 240, h: 160 }
-        default: return { w: 240, h: 160 }
+        case "arrow":  return { w: 240,  h: 2 }
+        case "text":   return { w: 200,  h: 40,  text: "Text" }
+        case "image":  return { w: 240,  h: 160 }
+        default:       return { w: 240,  h: 160 }
       }
     }
 
@@ -553,13 +520,13 @@ export default function LabLayout() {
     setWireEls(prev => [...prev, {
       id,
       type: wirePlacement.type,
-      x: Math.max(0, Math.min(x, CANVAS_CONFIG.width - dims.w)),
+      x: Math.max(0, Math.min(x, CANVAS_CONFIG.width  - dims.w)),
       y: Math.max(0, Math.min(y, CANVAS_CONFIG.height - dims.h)),
       w: dims.w,
       h: dims.h,
       z: Date.now(),
       text: dims.text,
-      variant: (dims as any).variant,
+      variant: dims.variant,
       iconName: wirePlacement.iconName
     }])
     setWirePlacement(null)
@@ -579,9 +546,26 @@ export default function LabLayout() {
     return () => document.removeEventListener("mousedown", onDown, true)
   }, [textEditState])
 
+  // Overlay de placement Post-it
+  const PostItManagerComponent = () => {
+    if (!placementMode) return null
+    return (
+      <div
+        className="absolute inset-0 cursor-crosshair"
+        onClick={(e) => {
+          const rect = contentRef.current?.getBoundingClientRect()
+          if (!rect) return
+          const x = (e.clientX - rect.left) / currentScale
+          const y = (e.clientY - rect.top)  / currentScale
+          addNote({ x, y, color: selectedColor, text: "Nouvelle note" })
+          setPlacementMode(false)
+        }}
+      />
+    )
+  }
+
   return (
     <div className={`fixed inset-0 flex flex-col overflow-hidden ${getCursor() === "crosshair" ? "cursor-crosshair" : ""}`}>
-      {/* LayersPanel */}
       <LayersPanel
         notes={notes}
         images={images}
@@ -595,7 +579,6 @@ export default function LabLayout() {
         onToggle={() => setLayersPanelOpen(!layersPanelOpen)}
       />
 
-      {/* Header + TextToolbar */}
       <HeaderBar
         user={user}
         currentScale={currentScale}
@@ -623,7 +606,6 @@ export default function LabLayout() {
         onFinishTextEdit={handleFinishTextEdit}
       />
 
-      {/* Workspace */}
       <div
         ref={workspaceRef}
         className="relative flex-1 overflow-hidden bg-transparent"
@@ -631,7 +613,6 @@ export default function LabLayout() {
         onDragOver={onDragOver}
         onDrop={onDrop}
       >
-        {/* DrawingLayer */}
         <DrawingLayer
           ref={drawingLayerRef}
           active={drawingMode && !showDrawingTools}
@@ -642,7 +623,6 @@ export default function LabLayout() {
           worldSize={{ width: CANVAS_CONFIG.width, height: CANVAS_CONFIG.height }}
         />
 
-        {/* Monde zoomable */}
         <div
           ref={contentRef}
           className="absolute top-0 left-0 border border-gray-300 border-dashed bg-gradient-to-br from-[#150E29] to-[#100A1F] z-0"
@@ -654,10 +634,10 @@ export default function LabLayout() {
           }}
           onClick={handleWorldClick}
         >
-          {/* Grille */}
           <div
             className="absolute inset-0 opacity-20"
             style={{
+              pointerEvents: "none",
               backgroundImage: `
                 linear-gradient(to right, #ccc 1px, transparent 1px),
                 linear-gradient(to bottom, #ccc 1px, transparent 1px)
@@ -666,44 +646,32 @@ export default function LabLayout() {
             }}
           />
 
-          {/* Placement Post-it */}
-          {placementMode && (
-            <PostItManager
-              selectedColor={selectedColor}
-              scale={currentScale}
-              contentRef={contentRef}
-              setNotes={setNotes}
-              onPlaced={() => setPlacementMode(false)}
-            />
-          )}
+          <PostItManagerComponent />
 
-          {/* Images */}
           {images.slice().sort((a, b) => (a.z ?? 0) - (b.z ?? 0)).map(img => (
             <ImageItem
               key={img.id}
               img={img}
               scale={currentScale}
-              onChange={patch => updateImage(img.id, patch)}
+              onChange={(patch: Partial<DroppedImage>) => updateImage(img.id, patch)}
               onDelete={() => deleteImage(img.id)}
               onFocus={() => bringImageToFront(img.id)}
             />
           ))}
 
-          {/* Post-its */}
           {notes.map(note => (
             <div key={note.id} data-wire-id={note.id}>
               <PostItNote
                 note={note}
                 scale={currentScale}
                 onDrag={handleDrag}
-                onUpdateText={handleTextUpdate}
-                onDelete={handleDelete}
+                onUpdateText={updateNoteText}
+                onDelete={deleteNote}
                 onStartTextEdit={(id, _type, styles) => handleStartTextEdit(id, "note", styles || {})}
               />
             </div>
           ))}
 
-          {/* Wireframes */}
           {wireEls.slice().sort((a, b) => a.z - b.z).map(w => (
             <div key={w.id} data-wire-id={w.id}>
               <WireframeElement
@@ -719,7 +687,6 @@ export default function LabLayout() {
             </div>
           ))}
 
-          {/* Tables */}
           <TableManager
             worldWidth={CANVAS_CONFIG.width}
             worldHeight={CANVAS_CONFIG.height}
@@ -730,7 +697,6 @@ export default function LabLayout() {
         </div>
       </div>
 
-      {/* Aide */}
       <div className="absolute z-20 p-3 text-sm text-white rounded-lg bottom-4 left-4 bg-black/70">
         <div className="mb-1 font-medium">Navigation :</div>
         <div>• <kbd className="px-1 bg-gray-600 rounded">Espace + Clic + Glisser</kbd> : Déplacer la vue</div>
@@ -745,39 +711,35 @@ export default function LabLayout() {
         )}
       </div>
 
-      {/* Bottom Toolbar */}
       <BottomToolbar
         active={activeBottomTool}
         onPick={(tool, variant) => {
           setActiveBottomTool(tool)
-
           if (tool === "select") {
             setWirePlacement(null)
             if (textEditState) setTextEditState(null)
             return
           }
-
           if (tool === "icon") {
             setShowIconPicker(true)
             if (textEditState) setTextEditState(null)
             return
           }
-
           if (["desktop","mobile","diamond","arrow","line","text","image","button","input","nav"].includes(tool)) {
             if (drawingMode) setDrawingMode(false)
             if (placementMode) setPlacementMode(false)
             if (textEditState) setTextEditState(null)
-            setWirePlacement({ type: tool as BottomToolId, variant })
+            if (tool !== "card") {
+              setWirePlacement({ type: tool as BottomToolId, variant })
+            }
           }
         }}
       />
 
-      {/* TodoPanel */}
       <div className="todo-panel">
         <TodoPanel open={showTodo} onClose={() => setShowTodo(false)} />
       </div>
 
-      {/* IconPicker */}
       <IconPicker
         isOpen={showIconPicker}
         onClose={() => setShowIconPicker(false)}

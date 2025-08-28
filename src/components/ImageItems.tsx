@@ -1,8 +1,10 @@
-import { useRef, useState } from "react";
-import { Trash2, MoveDiagonal2, FileText } from "lucide-react";
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react"
+import { createPortal } from "react-dom"
+import { Trash2, MoveDiagonal2, FileText } from "lucide-react"
 
-// Type pour correspondre à celui de LabLayout
-type DroppedImage = {
+type NoteMsg = { id: string; text: string; side: "left" | "right"; ts: number }
+
+export type DroppedImage = {
   id: string
   x: number
   y: number
@@ -12,220 +14,355 @@ type DroppedImage = {
   z?: number
   createdAt: number
   note?: string
+  noteThread?: NoteMsg[]
 }
 
 type Props = {
-  img: DroppedImage;
-  scale: number;
-  onChange: (patch: Partial<DroppedImage>) => void;
-  onDelete: () => void;
-  onFocus: () => void;
-};
+  img: DroppedImage
+  scale: number
+  onChange: (patch: Partial<DroppedImage>) => void
+  onDelete: () => void
+  onFocus: () => void
+}
+
+type ResizeState = { x: number; y: number; width: number; height: number; axis: "w" | "h" | null }
 
 export default function ImageItem({ img, scale, onChange, onDelete, onFocus }: Props) {
-  const dragStart = useRef<{ x: number; y: number } | null>(null);
-  const resizeStart = useRef<{ x: number; y: number; width: number; height: number } | null>(null);
-  const [note, setNote] = useState(img.note || "");
-  const [isEditingNote, setIsEditingNote] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null)
+  const dragStart = useRef<{ x: number; y: number } | null>(null)
+  const resizeStart = useRef<ResizeState | null>(null)
+  const resizing = useRef(false)
+
+  // Chat
+  const [isChatOpen, setIsChatOpen] = useState(false)
+  const [thread, setThread] = useState<NoteMsg[]>(() => img.noteThread || [])
+  const [noteSeen, setNoteSeen] = useState<boolean>(() => !(img.note || img.noteThread?.length))
+  const [draft, setDraft] = useState("")
+
+  // Migration ancienne note -> 1er message
+  useEffect(() => {
+    if (!img.noteThread && img.note) {
+      const first: NoteMsg = { id: crypto.randomUUID(), text: img.note, side: "left", ts: Date.now() }
+      setThread([first])
+      onChange({ noteThread: [first] })
+      setNoteSeen(false)
+    } else {
+      setThread(img.noteThread || [])
+      setNoteSeen(!(img.noteThread && img.noteThread.length))
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [img.note, img.noteThread])
+
+  // "!" si nouveau message pendant fermeture
+  const prevCountRef = useRef<number>(thread.length)
+  useEffect(() => {
+    if (!isChatOpen) {
+      if (thread.length > prevCountRef.current) setNoteSeen(false)
+      if (thread.length === 0) setNoteSeen(true)
+      prevCountRef.current = thread.length
+    }
+  }, [thread.length, isChatOpen])
+
+  // object-contain padding
+  const [aspect, setAspect] = useState(() => (img.width && img.height ? img.width / img.height : 1))
+  const { padX, padY } = (() => {
+    const W = img.width, H = img.height, a = aspect || 1, r = W / H
+    if (a > r) {
+      const drawH = W / a
+      return { padX: 0, padY: (H - drawH) / 2 }
+    } else {
+      const drawW = H * a
+      return { padX: (W - drawW) / 2, padY: 0 }
+    }
+  })()
+
+  // UI const
+  const uiScale = 1 / scale
+  const M = 4
+  const BTN = 16
+  const EXCL = 18
+  const GAP = 6
+  const MODAL_W = 520
+  const BTN_STYLE: React.CSSProperties = { width: BTN, height: BTN }
 
   // Drag
   const onPointerDown = (e: React.PointerEvent) => {
-    // Ignorer si on clique sur les boutons d'action ou la modal
-    if ((e.target as HTMLElement).closest(".img-resize") || 
-        (e.target as HTMLElement).closest(".img-action-btn") ||
-        (e.target as HTMLElement).closest(".note-modal")) return;
-    
-    e.stopPropagation();
-    onFocus();
-    dragStart.current = { x: e.clientX, y: e.clientY };
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-  };
-
+    const t = e.target as HTMLElement
+    if (t.closest(".img-resize") || t.closest(".img-action-btn") || t.closest(".note-modal")) return
+    e.stopPropagation()
+    onFocus()
+    dragStart.current = { x: e.clientX, y: e.clientY }
+    ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+  }
   const onPointerMove = (e: React.PointerEvent) => {
-    if (!dragStart.current || resizeStart.current || isEditingNote) return;
-    const dx = (e.clientX - dragStart.current.x) / scale;
-    const dy = (e.clientY - dragStart.current.y) / scale;
-    dragStart.current = { x: e.clientX, y: e.clientY };
-    onChange({ x: img.x + dx, y: img.y + dy, z: Date.now() });
-  };
-
+    if (resizing.current || isChatOpen || !dragStart.current) return
+    const dx = (e.clientX - dragStart.current.x) / scale
+    const dy = (e.clientY - dragStart.current.y) / scale
+    dragStart.current = { x: e.clientX, y: e.clientY }
+    onChange({ x: img.x + dx, y: img.y + dy, z: Date.now() })
+  }
   const onPointerUp = (e: React.PointerEvent) => {
-    dragStart.current = null;
-    (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
-  };
+    dragStart.current = null
+    ;(e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId)
+  }
 
-  // Resize
+  // Resize (ratio, axe auto)
+  const doResize = useCallback((clientX: number, clientY: number) => {
+    const rs = resizeStart.current
+    if (!rs) return
+    const dx = (clientX - rs.x) / scale
+    const dy = (clientY - rs.y) / scale
+    if (!rs.axis) {
+      const dist = Math.hypot(dx, dy)
+      if (dist < 2 / scale) return
+      rs.axis = Math.abs(dx) >= Math.abs(dy) ? "w" : "h"
+    }
+    const a = aspect || 1
+    let newW = rs.width
+    let newH = rs.height
+    if (rs.axis === "w") { newW = Math.max(40, rs.width + dx); newH = Math.max(40, newW / a) }
+    else                { newH = Math.max(40, rs.height + dy); newW = Math.max(40, newH * a) }
+    onChange({ width: newW, height: newH, z: Date.now() })
+  }, [aspect, onChange, scale])
+
+  const onWindowMove = useCallback((e: PointerEvent) => { if (resizing.current) doResize(e.clientX, e.clientY) }, [doResize])
+  const endResize = useCallback(() => {
+    resizing.current = false
+    resizeStart.current = null
+    window.removeEventListener("pointermove", onWindowMove)
+    window.removeEventListener("pointerup", endResize)
+  }, [onWindowMove])
+
   const onResizeDown = (e: React.PointerEvent) => {
-    e.stopPropagation();
-    onFocus();
-    resizeStart.current = { x: e.clientX, y: e.clientY, width: img.width, height: img.height };
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-  };
+    e.stopPropagation(); onFocus()
+    resizeStart.current = { x: e.clientX, y: e.clientY, width: img.width, height: img.height, axis: null }
+    resizing.current = true
+    window.addEventListener("pointermove", onWindowMove)
+    window.addEventListener("pointerup", endResize, { once: true })
+  }
+  const onResizeMove = (e: React.PointerEvent) => { if (resizing.current) doResize(e.clientX, e.clientY) }
+  const onResizeUp = () => { if (resizing.current) endResize() }
 
-  const onResizeMove = (e: React.PointerEvent) => {
-    if (!resizeStart.current) return;
-    const dx = (e.clientX - resizeStart.current.x) / scale;
-    const dy = (e.clientY - resizeStart.current.y) / scale;
-    onChange({
-      width: Math.max(40, resizeStart.current.width + dx),
-      height: Math.max(40, resizeStart.current.height + dy),
-      z: Date.now(),
-    });
-  };
+  // Chat actions
+  const openChat = (e: React.MouseEvent) => { e.stopPropagation(); setIsChatOpen(true) }
+  const closeChat = () => { setIsChatOpen(false); setNoteSeen(true) }
+  const sendMsg = () => {
+    const text = draft.trim()
+    if (!text) return
+    const msg: NoteMsg = { id: crypto.randomUUID(), text, side: "right", ts: Date.now() }
+    const updated = [...thread, msg]
+    setThread(updated)
+    onChange({ noteThread: updated })
+    setDraft("")
+    setNoteSeen(false)
+  }
 
-  const onResizeUp = (e: React.PointerEvent) => {
-    resizeStart.current = null;
-    (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
-  };
+  // Réactions rapides
+  const REACTIONS = [
+    { emoji: "👍", label: "OK" },
+    { emoji: "👎", label: "Non" },
+    { emoji: "✅", label: "Validé" },
+    { emoji: "❌", label: "Refus" },
+    { emoji: "🤔", label: "À discuter" },
+    { emoji: "⚠️", label: "Attention" },
+  ]
+  const sendReaction = (emoji: string) => {
+    const msg: NoteMsg = { id: crypto.randomUUID(), text: emoji, side: "right", ts: Date.now() }
+    const updated = [...thread, msg]
+    setThread(updated)
+    onChange({ noteThread: updated })
+    setNoteSeen(false)
+  }
 
-  // Note handlers
-  const handleNoteSubmit = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setIsEditingNote(false);
-    onChange({ note });
-  };
+  // Position modale (portal) — pas de scale, offsets * scale
+  const [modalPos, setModalPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 })
+  const recalcModalPos = useCallback(() => {
+    const rect = wrapRef.current?.getBoundingClientRect()
+    if (!rect) return
+    const offsetYWorld = padY + M + (thread.length && !noteSeen ? EXCL : BTN) + GAP
+    const offsetXWorld = padX + M
+    setModalPos({
+      top: rect.top + offsetYWorld * scale,
+      left: rect.left + offsetXWorld * scale
+    })
+  }, [padX, padY, thread.length, noteSeen, scale])
 
-  const handleNoteCancel = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setNote(img.note || "");
-    setIsEditingNote(false);
-  };
+  useLayoutEffect(() => { if (isChatOpen) recalcModalPos() }, [isChatOpen, recalcModalPos, scale])
+  useEffect(() => {
+    if (!isChatOpen) return
+    const h = () => recalcModalPos()
+    window.addEventListener("resize", h)
+    window.addEventListener("scroll", h, true)
+    return () => {
+      window.removeEventListener("resize", h)
+      window.removeEventListener("scroll", h, true)
+    }
+  }, [isChatOpen, recalcModalPos])
 
-  const handleOpenNoteEditor = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setNote(img.note || "");
-    setIsEditingNote(true);
-  };
-
-  const handleDeleteClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    onDelete();
-  };
-
+  // ===== Render =====
   return (
     <div
+      ref={wrapRef}
       className="absolute select-none image-item group"
-      style={{
-        left: img.x,
-        top: img.y,
-        width: img.width,
-        height: img.height,
-        zIndex: img.z ?? 1,
-      }}
+      style={{ left: img.x, top: img.y, width: img.width, height: img.height, zIndex: img.z ?? 1, touchAction: "none" }}
       onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
+      onPointerMove={(e) => { onPointerMove(e); onResizeMove(e) }}
       onPointerUp={onPointerUp}
     >
-      {/* Container pour l'image avec position relative pour les icônes */}
       <div className="relative w-full h-full">
-        {/* Image */}
         <img
           src={img.src}
           alt=""
           draggable={false}
-          className="block object-cover w-full h-full select-none" // object-cover au lieu de object-contain
+          className="block object-contain w-full h-full select-none"
           style={{ pointerEvents: "none" }}
+          onLoad={(e) => {
+            const iw = e.currentTarget.naturalWidth  || img.width  || 1
+            const ih = e.currentTarget.naturalHeight || img.height || 1
+            if (iw && ih) setAspect(iw / ih)
+          }}
         />
 
-        {/* Pastille de note (visible si une note existe) */}
-        {img.note && !isEditingNote && (
-          <div 
-            className="absolute bg-blue-500 border-2 border-white rounded-full shadow-sm pointer-events-none"
-            style={{
-              top: '8px',
-              left: '8px',
-              width: '12px',
-              height: '12px'
-            }}
-            title="Note disponible"
-          />
+        {/* coin haut-gauche : "!" (non lu) ou icône note */}
+        {(thread.length > 0 && !noteSeen) ? (
+          <div
+            className="absolute z-20 opacity-100"
+            style={{ top: padY + M, left: padX + M, transform: `scale(${uiScale})`, transformOrigin: "top left" }}
+          >
+            <button
+              onClick={openChat}
+              onPointerDown={(e) => e.stopPropagation()}
+              className="grid rounded-full shadow img-action-btn place-items-center"
+              style={{ width: EXCL, height: EXCL, backgroundColor: "#22c55e" }}
+              title="Nouveaux messages"
+            >
+              <span className="text-[11px] font-black text-white">!</span>
+            </button>
+          </div>
+        ) : (
+          <div
+            className="absolute z-20 transition-opacity opacity-0 group-hover:opacity-100"
+            style={{ top: padY + M, left: padX + M, transform: `scale(${uiScale})`, transformOrigin: "top left" }}
+            title="Ouvrir la discussion"
+          >
+            <button
+              onClick={openChat}
+              onPointerDown={(e) => e.stopPropagation()}
+              className="img-action-btn rounded-full bg-white/90 hover:bg-white shadow p-0.5"
+              style={BTN_STYLE}
+            >
+              <FileText className="w-3 h-3 text-blue-600" />
+            </button>
+          </div>
         )}
 
-        {/* Bouton Note : coin intérieur haut-gauche */}
-        <button
-          onClick={handleOpenNoteEditor}
-          className="absolute p-1 transition rounded-full shadow opacity-0 img-action-btn bg-white/90 group-hover:opacity-100 hover:bg-white"
-          style={{
-            top: '4px',
-            left: '4px'
-          }}
-          title="Ajouter/Éditer une note"
-        >
-          <FileText className="w-4 h-4 text-blue-600" />
-        </button>
-
-        {/* Bouton Supprimer : coin intérieur haut-droit */}
-        <button
-          onClick={handleDeleteClick}
-          className="absolute p-1 transition rounded-full shadow opacity-0 img-action-btn bg-white/90 group-hover:opacity-100 hover:bg-white"
-          style={{
-            top: '4px',
-            right: '4px'
-          }}
+        {/* coin haut-droit : supprimer */}
+        <div
+          className="absolute z-20 transition-opacity opacity-0 group-hover:opacity-100"
+          style={{ top: padY + M, right: padX + M, transform: `scale(${uiScale})`, transformOrigin: "top right" }}
           title="Supprimer"
         >
-          <Trash2 className="w-4 h-4 text-red-600" />
-        </button>
+          <button
+            onClick={(e) => { e.stopPropagation(); onDelete() }}
+            onPointerDown={(e) => e.stopPropagation()}
+            className="img-action-btn rounded-full bg-white/90 hover:bg-white shadow p-0.5"
+            style={BTN_STYLE}
+          >
+            <Trash2 className="w-3 h-3 text-red-600" />
+          </button>
+        </div>
 
-        {/* Handle Resize : coin intérieur bas-droit */}
-        <button
-          className="absolute p-1 transition rounded-full shadow opacity-0 img-resize bg-white/90 cursor-se-resize group-hover:opacity-100 hover:bg-white"
-          style={{
-            bottom: '4px',
-            right: '4px'
-          }}
+        {/* coin bas-droit : resize */}
+        <div
+          className="absolute z-20 transition-opacity opacity-0 group-hover:opacity-100"
+          style={{ bottom: padY + M, right: padX + M, transform: `scale(${uiScale})`, transformOrigin: "bottom right" }}
           title="Redimensionner"
-          onPointerDown={onResizeDown}
-          onPointerMove={onResizeMove}
-          onPointerUp={onResizeUp}
         >
-          <MoveDiagonal2 className="w-4 h-4 text-gray-600" />
-        </button>
+          <button
+            className="img-resize rounded-full bg-white/90 hover:bg-white shadow p-0.5 cursor-se-resize"
+            style={BTN_STYLE}
+            onPointerDown={onResizeDown}
+            onPointerMove={onResizeMove}
+            onPointerUp={onResizeUp}
+          >
+            <MoveDiagonal2 className="w-3 h-3 text-gray-600" />
+          </button>
+        </div>
       </div>
 
-      {/* Modal d'édition de note */}
-      {isEditingNote && (
-        <div 
-          className="absolute z-50 p-4 bg-white border-2 border-gray-200 rounded-lg shadow-xl note-modal"
-          style={{
-            top: '44px',
-            left: '4px',
-            minWidth: '220px',
-            maxWidth: Math.max(220, img.width - 8) + 'px'
-          }}
+      {/* Modale chat en portal */}
+      {isChatOpen && createPortal(
+        <div
+          className="note-modal"
+          style={{ position: "fixed", top: modalPos.top, left: modalPos.left, zIndex: 2147483647, width: MODAL_W }}
           onPointerDown={(e) => e.stopPropagation()}
           onClick={(e) => e.stopPropagation()}
           onPointerMove={(e) => e.stopPropagation()}
         >
-          <div className="mb-2">
-            <label className="block mb-1 text-xs font-medium text-gray-700">
-              Note sur l'image
-            </label>
-            <textarea
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              placeholder="Écrivez votre note ici..."
-              className="w-full h-20 p-2 text-sm border border-gray-300 rounded resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              autoFocus
-              onPointerDown={(e) => e.stopPropagation()}
-            />
+          <div className="p-4 bg-white border-2 border-gray-200 shadow-2xl rounded-xl">
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-sm font-semibold text-gray-900">Discussion liée à l’image</div>
+              <button onClick={closeChat} className="px-2 py-1 text-xs text-gray-600 rounded hover:bg-gray-100">Fermer</button>
+            </div>
+
+            <div className="overflow-auto border border-gray-200 rounded-md bg-gray-50" style={{ height: thread.length ? 240 : 140 }}>
+              {thread.length === 0 ? (
+                <div className="grid h-full px-4 text-sm text-gray-500 place-items-center">
+                  Aucun message. Écrivez le premier ci-dessous.
+                </div>
+              ) : (
+                <div className="p-3 space-y-3">
+                  {thread.map(m => (
+                    <div key={m.id} className={m.side === "left" ? "pr-6" : "pl-6"}>
+                      <div className={`flex ${m.side === "left" ? "justify-start" : "justify-end"}`}>
+                        <div className="flex items-end gap-2">
+                          <div className="grid w-7 h-7 text-[11px] bg-white border border-gray-300 rounded-md place-items-center">🙂</div>
+                          <div className="relative">
+                            <div className={`max-w-[70vw] sm:max-w-[420px] px-3 py-2 rounded-lg border ${m.side === "left" ? "border-gray-300" : "border-blue-300"} bg-white text-[13px] leading-snug`}>
+                              {m.text}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Emojis rapprochés + input + envoyer (sans débordement) */}
+            <div className="flex flex-wrap items-center w-full gap-2 mt-3">
+              <div className="flex items-center gap-1">
+                {REACTIONS.map((r) => (
+                  <button
+                    key={r.emoji}
+                    title={r.label}
+                    onClick={() => sendReaction(r.emoji)}
+                    className="p-1 text-[18px] leading-none rounded hover:bg-gray-100"
+                  >
+                    {r.emoji}
+                  </button>
+                ))}
+              </div>
+
+              <input
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMsg() } }}
+                placeholder="Écrire un message…"
+                className="flex-1 min-w-[160px] px-3 py-2 text-sm bg-white border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+              <button
+                onClick={sendMsg}
+                className="px-3 py-2 text-sm text-white bg-blue-600 rounded-md shrink-0 hover:bg-blue-700"
+              >
+                Envoyer
+              </button>
+            </div>
           </div>
-          <div className="flex justify-end gap-2">
-            <button
-              onClick={handleNoteCancel}
-              className="px-3 py-1 text-sm text-gray-600 transition-colors rounded hover:text-gray-800 hover:bg-gray-100"
-            >
-              Annuler
-            </button>
-            <button
-              onClick={handleNoteSubmit}
-              className="px-3 py-1 text-sm text-white transition-colors bg-blue-500 rounded hover:bg-blue-600"
-            >
-              Sauver
-            </button>
-          </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
-  );
+  )
 }
